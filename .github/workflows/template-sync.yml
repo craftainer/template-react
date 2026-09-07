@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       # Belt-and-suspenders against a self-sync loop: this workflow ships
-      # inside the template repo itself (crazyracer98/template-fastapi),
+      # inside the template repo itself (craftainer/template-fastapi),
       # which never has a state file, so "Read current sync state" below
       # already no-ops there. This step additionally refuses the one path
       # that could still set template_repo to this same repo -- a
@@ -64,6 +64,8 @@ jobs:
 
       - name: Bootstrap state file
         if: steps.cadence.outputs.skip != 'true' && inputs.initial_sync_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 .github/scripts/template_sync.py write-state \
             --state-file "$STATE_FILE" \
@@ -71,9 +73,14 @@ jobs:
             --synced-tag "${{ inputs.initial_sync_tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          branch="template-sync/bootstrap-${{ inputs.initial_sync_tag }}"
+          git checkout -b "$branch"
           git add "$STATE_FILE"
           git commit -m "chore(template-sync): bootstrap state at ${{ inputs.initial_sync_tag }}"
-          git push
+          git push -u origin "$branch"
+          gh pr create \
+            --title "chore(template-sync): bootstrap state at ${{ inputs.initial_sync_tag }}" \
+            --body "Seeds \`$STATE_FILE\` pointing \`template_repo\` at \`${{ inputs.template_repo }}\` @ \`${{ inputs.initial_sync_tag }}\`. No other files are touched by this bootstrap run -- the next scheduled or manual sync diffs against newer tags and opens its own PR."
 
       - name: Read current sync state
         id: state
