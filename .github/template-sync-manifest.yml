@@ -1,0 +1,120 @@
+# Classifies every path tracked in this repo into exactly one template-sync
+# tier, read by ../workflows/template-sync.yml from the template's tagged ref
+# being synced *to* (never from an instance's own copy) -- see
+# ../workflows/README.md's "Template sync" section for the tier semantics and
+# ../scripts/README.md for the checker that keeps this file exhaustive.
+#
+# A path matching a "replace" pattern that an instance has locally deleted or
+# renamed is recreated on the next sync -- that's inherent to "replace" (byte-
+# for-byte, unconditional), not a bug to work around here; an instance that
+# wants a template-owned path gone for good should move its pattern to
+# "ignore" in a template release rather than deleting the file locally.
+#
+# This repo is itself both an instance of template-base and its own template
+# for further React-frontend instances (paralleling template-fastapi's own
+# manifest for the FastAPI/CRUD side) -- so this is a completely separate,
+# larger manifest than template-base's own, covering this repo's own
+# React/Vite/pnpm-specific tracked-file set too.
+#
+# Patterns: a trailing "/" matches the directory and everything under it; "*"
+# matches any run of characters (including "/"); anything else is an exact
+# path. Every pattern here is anchored at the repo root.
+
+replace:
+  # Devcontainer, editor, CI, and CLI-assistant config -- no instance ever
+  # has a reason to diverge from the template's own setup for these.
+  # .claude/ in particular: if an instance ever needs to add its own
+  # permissions/hooks to .claude/settings.json, that one file (not the
+  # whole directory) should move to "merge" in a template release, rather
+  # than losing replace-tier sync for .claude/'s other, still-generic
+  # contents.
+  - .devcontainer/
+  - .vscode/
+  - .claude/
+  - .github/workflows/
+  - .github/scripts/
+  - .github/CONTENTS.md
+  - .github/renovate.json
+  - .github/template-sync-manifest.yml
+  - .github/ISSUE_TEMPLATE/
+  - .github/PULL_REQUEST_TEMPLATE.md
+
+  # Build/dependency/hook plumbing, all instance-agnostic.
+  - Dockerfile
+  - docker/
+  - .dockerignore
+  - .gitattributes
+  - .gitignore
+  - .pre-commit-config.yaml
+  - .oxlintrc.json
+  - scripts/
+  - .mcp.json
+  - .secrets/README.md
+  - .secrets/.gitkeep
+
+  # Vite/TypeScript project plumbing -- an instance changing these is
+  # changing the build tooling itself, not its own app code.
+  - tsconfig.json
+  - tsconfig.app.json
+  - tsconfig.node.json
+  - vite.config.ts
+  - vitest.config.ts
+  - index.html
+
+  # The AI-assisted workflow, and every directory README/template documenting
+  # this repo's own conventions rather than product knowledge.
+  - CLAUDE.md
+  - docs/TEMPLATE.md
+  - docs/README.md
+  - docs/adrs/README.md
+  - docs/adrs/template.md
+  - docs/frs/README.md
+  - docs/frs/template.md
+  - docs/nfrs/README.md
+  - docs/nfrs/template.md
+  - docs/plans/README.md
+  - docs/plans/template.md
+
+  # The generic CRUD client plus its worked Heroes example (mirroring
+  # template-fastapi's own Hero example) -- see the header note above
+  # about what "replace" means for a path an instance has deleted.
+  - src/
+
+ignore:
+  # Each instance chooses its own license and copyright holder.
+  - LICENSE
+
+  # The release-artifact contract (see docs/TEMPLATE.md's "Release: a
+  # Makefile contract" section) is the whole point that this differs per
+  # instance -- template-owned in shape only, never in content.
+  - Makefile
+
+  # Product/domain knowledge and working plans: instance-owned from the
+  # moment it's instantiated.
+  - docs/architecture.md
+  - docs/system-design.md
+  - docs/glossary.md
+  - docs/stakeholders.md
+  - docs/adrs/[0-9]*.md
+  - docs/frs/FR-*.md
+  - docs/nfrs/NFR-*.md
+  - docs/plans/[0-9]*.md
+
+  # Instance-owned static assets and env-var documentation.
+  - public/
+  - .env.example
+
+  # Instance-owned bookkeeping, written only by the sync workflow itself.
+  - .github/template-sync-state.json
+
+  # Derived from package.json, which is merge-tier -- a 3-way merge of a
+  # lock file is unreliable, so an instance regenerates it locally with
+  # `pnpm install` after a sync PR changes package.json (called out in the
+  # PR body when that happens).
+  - pnpm-lock.yaml
+
+merge:
+  # Project identity (name/description/version) is interpolated per instance;
+  # everything else in these two files is template-owned.
+  - README.md
+  - package.json

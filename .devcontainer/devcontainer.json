@@ -1,0 +1,46 @@
+{
+  "name": "template-react",
+  "dockerComposeFile": ["compose.yml"],
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4.1.0": {
+      "moby": false,
+      "dockerDashComposeVersion": "v2"
+    }
+  },
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": {
+      "label": "Vite dev server",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "mounts": [
+    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind",
+    "source=/run/host-services/ssh-auth.sock,target=/ssh-agent-macos,type=bind"
+  ],
+  "remoteEnv": {
+    "SSH_AUTH_SOCK": "/home/vscode/.ssh-agent-resolved.sock"
+  },
+  "postCreateCommand": "git config --global --add safe.directory /workspace && pnpm install && prek install",
+  "postStartCommand": "sh /workspace/.devcontainer/resolve-ssh-agent.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "tamasfe.even-better-toml",
+        "Anthropic.claude-code",
+        "GitHub.vscode-github-actions",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "workbench.browser.enableRemoteProxy": true
+      }
+    }
+  },
+  "remoteUser": "vscode"
+}

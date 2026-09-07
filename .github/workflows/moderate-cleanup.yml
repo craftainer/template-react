@@ -1,0 +1,50 @@
+# Reconciles git/PR state left over by the issue-moderation pipeline once
+# a bug/feature issue closes -- see ../workflows/README.md's "Issue
+# moderation" section and ../../docs/plans/2026-09-issue-moderator.md for
+# the design. No trust gate and no Claude invocation: it only tidies up
+# via `gh`/`git`, so there's no prompt-injection or spend surface to
+# guard, and it stays unconditional even if ANTHROPIC_API_KEY is unset or
+# later removed -- prior runs' branches/PRs still need cleaning up.
+name: Moderate cleanup
+
+on:
+  issues:
+    types: [closed]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: moderate-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: >-
+      ${{ contains(github.event.issue.labels.*.name, 'bug') ||
+      contains(github.event.issue.labels.*.name, 'enhancement') }}
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Determine moderation branch name
+        id: branch
+        run: |
+          if [ "${{ contains(github.event.issue.labels.*.name, 'bug') }}" = "true" ]; then
+            echo "name=bug/${{ github.event.issue.number }}-repro" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=feature/${{ github.event.issue.number }}-plan" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reconcile PR/branch state for the closed issue
+        run: |
+          .github/scripts/moderate_cleanup.sh \
+            "${{ steps.branch.outputs.name }}" \
+            "${{ github.event.issue.number }}"

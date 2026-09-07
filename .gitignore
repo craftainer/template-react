@@ -1,0 +1,130 @@
+# Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,linux,macos,windows
+# Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,linux,macos,windows
+# An instance adds its own language section (python,venv / rust / node /
+# go / ...) on top of this generic base -- see docs/TEMPLATE.md.
+
+### Linux ###
+*~
+
+# temporary files which can be created if a process still has a handle open of a deleted file
+.fuse_hidden*
+
+# KDE directory preferences
+.directory
+
+# Linux trash folder which might appear on any partition or disk
+.Trash-*
+
+# .nfs files are created when an open file is removed but is still being accessed
+.nfs*
+
+### macOS ###
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must end with two \r
+Icon
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+### macOS Patch ###
+# iCloud generated files
+*.icloud
+
+# Generic build/dist output -- see docs/TEMPLATE.md's "Release: a Makefile
+# contract" section (release.yml's `make release-assets` populates this).
+dist/
+
+### VisualStudioCode ###
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+!.vscode/README.md
+
+# Local History for Visual Studio Code
+.history/
+
+# Built Visual Studio Code Extensions
+*.vsix
+
+### VisualStudioCode Patch ###
+# Ignore all local history of files
+.history
+.ionide
+
+### Windows ###
+# Windows thumbnail cache files
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+
+# Dump file
+*.stackdump
+
+# Folder config file
+[Dd]esktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# Windows Installer files
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Windows shortcuts
+*.lnk
+
+# End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,linux,macos,windows
+
+### Node (app runtime) ###
+node_modules
+dist-ssr
+*.local
+*.tsbuildinfo
+coverage/
+
+# Local dev overrides -- see .env.example.
+.env
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+### Custom ###
+.secrets/*
+!.secrets/.gitkeep
+!.secrets/README.md
+
+# Claude Code CLI: personal, per-user overrides — never the shared
+# .claude/settings.json.
+.claude/settings.local.json

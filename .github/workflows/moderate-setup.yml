@@ -1,0 +1,38 @@
+# One-time (idempotent) label bootstrap for the issue-moderation pipeline
+# -- see ../workflows/README.md's "Issue moderation" section and
+# ../../docs/plans/2026-09-issue-moderator.md for the design. Run manually
+# after adding the ANTHROPIC_API_KEY secret; safe to re-run any time (each
+# label is created or left alone, never removed).
+name: Moderate setup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  labels:
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Create moderation labels
+        run: |
+          create() {
+            gh label create "$1" --color "$2" --description "$3" --force
+          }
+          create "bug:needs-info"          "d4c5f9" "Bug triage needs more information from the reporter"
+          create "bug:repro-ready"         "d4c5f9" "Bug triage pushed a failing-test repro, awaiting reporter /confirm"
+          create "bug:confirmed"           "d4c5f9" "Reporter confirmed the repro; fix is running"
+          create "bug:fixed"               "d4c5f9" "Fix PR opened, awaiting human review/merge"
+          create "enhancement:not-a-fit"   "c5def5" "Feature triage judged this out of scope"
+          create "enhancement:plan-ready"  "c5def5" "Feature triage pushed a plan doc, awaiting reporter /confirm"
+          create "enhancement:confirmed"   "c5def5" "Reporter confirmed the plan; build is running"
+          create "enhancement:built"       "c5def5" "Build PR opened, awaiting human review/merge"
+          create "claude:ok"               "0e8a16" "Maintainer opt-in: run the moderation pipeline for this issue despite the reporter not being a collaborator"
+          create "needs-human"             "b60205" "The moderation pipeline got stuck and needs a maintainer"

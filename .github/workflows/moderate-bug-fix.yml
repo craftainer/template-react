@@ -1,0 +1,91 @@
+# Claude-driven fix once a bug's reporter confirms the repro branch --
+# see ../workflows/README.md's "Issue moderation" section and
+# ../../docs/plans/2026-09-issue-moderator.md for the design. Dormant (job
+# shows Skipped, not Failed) unless the ANTHROPIC_API_KEY repository
+# secret is configured.
+name: Moderate bug fix
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: moderate-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  # secrets.* isn't readable from jobs.<job_id>.if (GitHub rejects the
+  # workflow as invalid), only from a step or jobs.<job_id>.env -- so the
+  # trust gate below reads this job's output instead. See
+  # ../workflows/README.md's "Issue moderation" section.
+  gate:
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    outputs:
+      has-key: ${{ steps.check.outputs.has-key }}
+    steps:
+      - id: check
+        run: echo "has-key=${{ secrets.ANTHROPIC_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  fix:
+    needs: gate
+    if: >-
+      ${{ needs.gate.outputs.has-key == 'true' &&
+      contains(github.event.issue.labels.*.name, 'bug:repro-ready') &&
+      (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) ||
+       contains(github.event.issue.labels.*.name, 'claude:ok')) &&
+      github.event.comment.user.login == github.event.issue.user.login &&
+      contains(fromJSON('["/confirm","/confirm\n","/confirm\r\n"]'), github.event.comment.body) }}
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - name: Check out repro branch
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: bug/${{ github.event.issue.number }}-repro
+
+      - name: Relabel as confirmed
+        run: gh issue edit "$GITHUB_ISSUE_NUMBER" --remove-label "bug:repro-ready" --add-label "bug:confirmed"
+
+      # Unique per run so concurrent runs never collide on
+      # container/volume/network names, and so the teardown step below tears
+      # down exactly this run's stack. Mirrors checks.yml.
+      - name: Set compose project name
+        run: echo "COMPOSE_PROJECT_NAME=ci-moderate-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+
+      - name: Write Claude API key
+        run: |
+          install -m 600 /dev/null .secrets/claude.txt
+          printf '%s' "${{ secrets.ANTHROPIC_API_KEY }}" > .secrets/claude.txt
+
+      - name: Run Claude bug fix
+        uses: devcontainers/ci@v0.3
+        with:
+          runCmd: >-
+            .github/scripts/run_claude.sh
+            .github/scripts/prompts/bug-fix.md
+            "Read,Grep,Glob,Write,Edit,Bash(git *),Bash(prek run *),Bash(gh pr create:*),Bash(gh issue *)"
+            40 900
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
+
+      - name: Remove Claude API key
+        if: always()
+        run: rm -f .secrets/claude.txt
+
+      - name: Tear down devcontainer stack
+        if: always()
+        run: |
+          docker compose \
+            -p ${{ env.COMPOSE_PROJECT_NAME }} \
+            down --volumes --remove-orphans

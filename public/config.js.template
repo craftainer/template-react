@@ -1,0 +1,9 @@
+// Generated at container start (see docker/docker-entrypoint.d/20-envsubst-app-config.sh)
+// from real env vars, into /config.js -- loaded by index.html before the
+// app bundle. See docs/adrs/0002-same-origin-api-proxy.md's "Runtime-
+// configurable production image". Never present as `/config.js` in dev --
+// src/auth/config.ts falls back to Vite's own build-time env vars there.
+window.__APP_CONFIG__ = {
+  oidcAuthority: "${OIDC_AUTHORITY}",
+  oidcClientId: "${OIDC_CLIENT_ID}",
+};

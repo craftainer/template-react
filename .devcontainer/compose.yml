@@ -1,0 +1,45 @@
+# Dev service: the devcontainer itself, built from the top-level
+# Dockerfile's `develop` stage. The workspace is bind-mounted so source
+# edits are picked up without a rebuild. An instance that adds backing
+# services (a database, a queue, ...) adds its own `include:` list here,
+# pointing at its own `stack/*/compose.yml` fragments -- see
+# .devcontainer/README.md's "Docker-in-Docker vs. the host's Docker".
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: develop
+    volumes:
+      - ..:/workspace:cached
+      # No volume for a language-runtime environment (venv, node_modules,
+      # target/, ...): a mounted one gets swept by Windows DLP/malware-
+      # scanning tools just like a bind-mounted one, so it lives purely in
+      # the container's writable layer instead -- see each language's own
+      # README for its specific env var/path convention once an instance
+      # adds one.
+      - claude-config:/home/vscode/.claude
+    command: sleep infinity
+    # No ports: mapping and no networks: block — see the root README's
+    # "Don't". Host access comes from devcontainer.json's forwardPorts;
+    # an instance with backing services reaches them by name on the
+    # default network compose generates for this project.
+    #
+    # extra_hosts (not a ports:/networks: block, so the "Don't" above
+    # still holds) is this instance's own addition: the sibling backend
+    # repo (template-fastapi) is a *separate* devcontainer/compose
+    # project, not a service of this one, so there's no shared project
+    # network to name it on. Its own devcontainer.json forwards its api
+    # service's port 8000 to the host; host-gateway lets this container
+    # reach that forwarded port the same way on Docker Desktop and Linux
+    # Docker Engine alike. See docs/adrs/0002-same-origin-api-proxy.md
+    # and README.md's "Connecting to the backend".
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  # Persists Claude Code CLI session/credential state across container
+  # rebuilds. A small amount of session-state data, not a language
+  # runtime's dependency tree, so the DLP/malware-scanning concern above
+  # doesn't apply the same way here.
+  claude-config:

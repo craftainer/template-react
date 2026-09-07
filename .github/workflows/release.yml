@@ -1,0 +1,110 @@
+# Manually-triggered SemVer release: computes the tag/version, then runs
+# the instance's own Makefile release contract (build/sbom/release-assets/
+# publish -- see docs/TEMPLATE.md's "Release: a Makefile contract" section)
+# and creates a GitHub release with everything the instance's Makefile
+# populated into dist/.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Release channel
+        type: choice
+        required: true
+        options:
+          - alpha
+          - beta
+          - rc
+          - full
+      bump:
+        description: >-
+          SemVer 2 part to increase. Use "none" to keep the current base
+          version — e.g. to add another alpha/beta/rc to an existing
+          series, or to promote one straight to a full release.
+        type: choice
+        required: true
+        options:
+          - major
+          - minor
+          - patch
+          - none
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: version
+        run: |
+          python3 .github/scripts/compute_next_version.py \
+            --bump "${{ inputs.bump }}" \
+            --release-type "${{ inputs.release_type }}" \
+            >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: version
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.3.0
+
+      # Each target is the instance's own responsibility -- see
+      # docs/TEMPLATE.md's "Release: a Makefile contract" section for what
+      # each one is expected to do. A repo with nothing to build/publish
+      # (e.g. most infra-only instances) still implements each target,
+      # even as a no-op, so this workflow never needs an instance-specific
+      # branch.
+      - name: Build release artifact(s)
+        run: make build
+
+      - name: Generate SBOM(s)
+        run: make sbom
+
+      - name: Populate release assets
+        run: make release-assets
+
+      - name: Publish
+        run: make publish
+
+      # Lets `gh` create the tag itself (from the checked-out commit) and
+      # the release in one step, using GitHub's own "generate release
+      # notes" changelog — the same one the web UI's button produces.
+      # Every file `make release-assets` left in dist/ is attached.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG=--prerelease
+          else
+            PRERELEASE_FLAG=
+          fi
+          shopt -s nullglob
+          assets=(dist/*)
+          gh release create "${{ needs.version.outputs.tag }}" \
+            "${assets[@]}" \
+            --title "${{ needs.version.outputs.tag }}" \
+            --target "${{ github.sha }}" \
+            --generate-notes \
+            $PRERELEASE_FLAG

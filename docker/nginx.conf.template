@@ -1,0 +1,27 @@
+# Rendered by nginx's own built-in docker-entrypoint.d/20-envsubst-on-
+# templates.sh from real container env vars on every start -- see
+# docs/adrs/0002-same-origin-api-proxy.md. ${API_PROXY_TARGET} mirrors
+# vite.config.ts's dev-server proxy: same /api prefix, same target env
+# var, same prefix-stripping behavior (the trailing slash on both the
+# location and proxy_pass below).
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location /api/ {
+        proxy_pass ${API_PROXY_TARGET}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SPA history-mode fallback: an unknown path (a client-side route)
+    # serves index.html instead of nginx's own 404.
+    location / {
+        try_files $uri /index.html;
+    }
+}

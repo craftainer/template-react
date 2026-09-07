@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Prek: run all hooks (manual stage)",
+      "type": "shell",
+      "command": "prek run --all-files --hook-stage manual",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

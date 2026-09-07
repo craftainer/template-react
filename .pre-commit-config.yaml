@@ -1,0 +1,103 @@
+# Run with prek (https://prek.j178.dev/, a Rust, drop-in-compatible
+# reimplementation of pre-commit — see CLAUDE.md for why) or with the
+# classic `pre-commit` CLI; both read this exact file.
+#
+# Fast, basic checks run on every commit. Every hook also carries the
+# "manual" stage, so `prek run --hook-stage manual --all-files` runs
+# everything at once regardless of which git hook would normally trigger
+# it. An instance layers its own language-specific hooks (ruff/mypy/
+# pytest, cargo fmt/clippy, golangci-lint, eslint/tsc, tflint, ...) onto
+# this file's `repos:` list — see docs/TEMPLATE.md's "Checks" section.
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+  - commit-msg
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        stages: [pre-commit, manual]
+      - id: end-of-file-fixer
+        stages: [pre-commit, manual]
+      - id: check-yaml
+        stages: [pre-commit, manual]
+        # pnpm 12's own package-manager self-management (see package.json's
+        # `packageManager` field) writes pnpm-lock.yaml as two concatenated
+        # YAML documents (its own platform-binary packages, then the actual
+        # project lockfile) -- valid pnpm, not valid single-document YAML.
+        exclude: ^pnpm-lock\.yaml$
+      - id: check-toml
+        stages: [pre-commit, manual]
+      - id: check-json
+        stages: [pre-commit, manual]
+        # tsconfig*.json is TypeScript's own JSONC dialect (comments,
+        # trailing commas), not strict JSON.
+        exclude: ^tsconfig.*\.json$
+      - id: check-added-large-files
+        stages: [pre-commit, manual]
+      - id: check-merge-conflict
+        stages: [pre-commit, manual]
+      - id: mixed-line-ending
+        stages: [pre-commit, manual]
+      - id: debug-statements
+        stages: [pre-commit, manual]
+      - id: detect-private-key
+        stages: [pre-commit, manual]
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      # No "manual" stage here, unlike every other hook in this file: this
+      # one needs the actual commit-message file git passes at the
+      # commit-msg stage, which "prek run --all-files --hook-stage manual"
+      # has no equivalent for.
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+
+  # oxlint, prettier, tsc and vitest are already project dev-dependencies
+  # (see package.json) — running them via `pnpm` keeps their pinned
+  # versions as the single source of truth instead of a second, separate
+  # pin per tool in this file.
+  - repo: local
+    hooks:
+      - id: oxlint
+        name: oxlint
+        entry: pnpm exec oxlint
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+
+      - id: prettier-check
+        name: prettier --check
+        entry: pnpm exec prettier --check .
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+
+      - id: typecheck
+        name: tsc -b
+        entry: pnpm exec tsc -b
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      - id: vitest
+        name: vitest run
+        entry: pnpm exec vitest run
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      - id: template-sync-manifest
+        name: template-sync-manifest (every tracked path classified)
+        entry: python3 .github/scripts/template_sync_manifest.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]

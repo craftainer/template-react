@@ -1,0 +1,91 @@
+# Claude-driven first triage of a bug report -- see
+# ../workflows/README.md's "Issue moderation" section for the full state
+# machine and ../../docs/plans/2026-09-issue-moderator.md for the design.
+# Dormant (job shows Skipped, not Failed) unless the ANTHROPIC_API_KEY
+# repository secret is configured.
+name: Moderate bug triage
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: moderate-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  # secrets.* isn't readable from jobs.<job_id>.if (GitHub rejects the
+  # workflow as invalid), only from a step or jobs.<job_id>.env -- so the
+  # trust gate below reads this job's output instead. See
+  # ../workflows/README.md's "Issue moderation" section.
+  gate:
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    outputs:
+      has-key: ${{ steps.check.outputs.has-key }}
+    steps:
+      - id: check
+        run: echo "has-key=${{ secrets.ANTHROPIC_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  triage:
+    needs: gate
+    if: >-
+      ${{ needs.gate.outputs.has-key == 'true' &&
+      contains(github.event.issue.labels.*.name, 'bug') &&
+      (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) ||
+       contains(github.event.issue.labels.*.name, 'claude:ok')) }}
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      # Whatever state this issue was in before it was closed, reopening it
+      # restarts triage from scratch rather than resuming stale state -- see
+      # ../workflows/README.md.
+      - name: Reset stale triage state on reopen
+        if: github.event.action == 'reopened'
+        run: .github/scripts/reset_issue_state.sh bug "$GITHUB_ISSUE_NUMBER"
+
+      # Unique per run so concurrent runs never collide on
+      # container/volume/network names, and so the teardown step below tears
+      # down exactly this run's stack. Mirrors checks.yml.
+      - name: Set compose project name
+        run: echo "COMPOSE_PROJECT_NAME=ci-moderate-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+
+      - name: Write Claude API key
+        run: |
+          install -m 600 /dev/null .secrets/claude.txt
+          printf '%s' "${{ secrets.ANTHROPIC_API_KEY }}" > .secrets/claude.txt
+
+      - name: Run Claude bug triage
+        uses: devcontainers/ci@v0.3
+        with:
+          runCmd: >-
+            .github/scripts/run_claude.sh
+            .github/scripts/prompts/bug-triage.md
+            "Read,Grep,Glob,Write,Edit,Bash(git *),Bash(gh issue *),Bash(gh repo view:*),Bash(prek run *)"
+            15 120
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
+
+      - name: Remove Claude API key
+        if: always()
+        run: rm -f .secrets/claude.txt
+
+      - name: Tear down devcontainer stack
+        if: always()
+        run: |
+          docker compose \
+            -p ${{ env.COMPOSE_PROJECT_NAME }} \
+            down --volumes --remove-orphans

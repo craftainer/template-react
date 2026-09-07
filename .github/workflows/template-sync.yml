@@ -1,0 +1,171 @@
+# Ships to every instance of this template. Diffs the instance against the
+# template's latest tagged release (per ../template-sync-manifest.yml's
+# tiers) and opens a PR with the result -- never a direct push, never
+# auto-merged. See ../workflows/README.md's "Template sync" section.
+name: Template sync
+
+on:
+  schedule:
+    # Cadence itself (weekly vs. monthly) is a repository variable, since
+    # cron can't read one to pick its own interval -- see check-cadence below.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      initial_sync_tag:
+        description: >-
+          One-time bootstrap only: seed template-sync-state.json at this tag
+          instead of running a sync. Use for an instance that predates this
+          workflow and has no state file yet. Requires template_repo too.
+        required: false
+      template_repo:
+        description: >-
+          Bootstrap only: the template's "owner/repo" this instance was
+          created from, e.g. "myorg/template-fastapi".
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  STATE_FILE: .github/template-sync-state.json
+
+jobs:
+  sync:
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      # Belt-and-suspenders against a self-sync loop: this workflow ships
+      # inside the template repo itself (crazyracer98/template-fastapi),
+      # which never has a state file, so "Read current sync state" below
+      # already no-ops there. This step additionally refuses the one path
+      # that could still set template_repo to this same repo -- a
+      # workflow_dispatch bootstrap run fired against the template repo by
+      # mistake -- so that mistake fails loudly instead of quietly seeding
+      # a state file that would sync the template to itself forever after.
+      - name: Refuse to sync a repo against itself
+        if: inputs.template_repo != '' && inputs.template_repo == github.repository
+        run: |
+          echo "::error::template_repo (${{ inputs.template_repo }}) is this same repository -- refusing to bootstrap a self-sync loop." >&2
+          exit 1
+
+      - name: Check sync cadence
+        id: cadence
+        if: github.event_name == 'schedule'
+        run: |
+          if ! python3 .github/scripts/template_sync.py check-cadence \
+              --interval "${{ vars.TEMPLATE_SYNC_INTERVAL || 'weekly' }}"; then
+            echo "Not this interval's scheduled week -- no-op."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bootstrap state file
+        if: steps.cadence.outputs.skip != 'true' && inputs.initial_sync_tag != ''
+        run: |
+          python3 .github/scripts/template_sync.py write-state \
+            --state-file "$STATE_FILE" \
+            --template-repo "${{ inputs.template_repo }}" \
+            --synced-tag "${{ inputs.initial_sync_tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$STATE_FILE"
+          git commit -m "chore(template-sync): bootstrap state at ${{ inputs.initial_sync_tag }}"
+          git push
+
+      - name: Read current sync state
+        id: state
+        if: steps.cadence.outputs.skip != 'true' && inputs.initial_sync_tag == ''
+        run: |
+          if ! python3 .github/scripts/template_sync.py read-state --state-file "$STATE_FILE" \
+              >> "$GITHUB_OUTPUT"; then
+            echo "::warning::no $STATE_FILE yet -- run this workflow manually with initial_sync_tag set."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Guard against a self-referential state file
+        if: steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true' && steps.state.outputs.template_repo == github.repository
+        run: |
+          echo "::error::$STATE_FILE points template_repo at this same repository -- refusing to sync." >&2
+          exit 1
+
+      - name: Fetch template tags
+        id: tags
+        if: steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true' && inputs.initial_sync_tag == ''
+        env:
+          GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
+        run: |
+          gh api "repos/${{ steps.state.outputs.template_repo }}/tags" --paginate --jq '.[].name' \
+            > /tmp/template-tags.txt
+          new_tag=$(python3 .github/scripts/template_sync.py select-tag \
+            --channel "${{ vars.TEMPLATE_SYNC_CHANNEL || 'stable' }}" \
+            < /tmp/template-tags.txt | cut -d= -f2)
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
+          if [ "$new_tag" = "${{ steps.state.outputs.synced_tag }}" ]; then
+            echo "Already synced to $new_tag -- no-op."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out template at both tags
+        if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
+        run: |
+          gh repo clone "${{ steps.state.outputs.template_repo }}" /tmp/template-old -- \
+            --depth 1 --branch "${{ steps.state.outputs.synced_tag }}"
+          gh repo clone "${{ steps.state.outputs.template_repo }}" /tmp/template-new -- \
+            --depth 1 --branch "${{ steps.tags.outputs.new_tag }}"
+
+      - name: Apply replace and merge tiers
+        id: apply
+        if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
+        run: |
+          cd /tmp/template-new/.github/scripts
+          set +e
+          python3 template_sync.py apply \
+            --manifest /tmp/template-new/.github/template-sync-manifest.yml \
+            --old-ref /tmp/template-old \
+            --new-ref /tmp/template-new \
+            --instance-root "$GITHUB_WORKSPACE" \
+            > /tmp/apply-summary.json
+          echo "conflicts=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat /tmp/apply-summary.json
+
+      - name: Update sync state
+        if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
+        run: |
+          python3 .github/scripts/template_sync.py write-state \
+            --state-file "$STATE_FILE" \
+            --template-repo "${{ steps.state.outputs.template_repo }}" \
+            --synced-tag "${{ steps.tags.outputs.new_tag }}"
+
+      - name: Open sync PR
+        if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain)" ]; then
+            echo "Nothing changed -- no-op."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          branch="template-sync/${{ steps.tags.outputs.new_tag }}"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "chore(template-sync): sync to ${{ steps.tags.outputs.new_tag }}"
+          git push -u origin "$branch"
+
+          python3 /tmp/template-new/.github/scripts/template_sync.py pr-body \
+            --summary /tmp/apply-summary.json \
+            --old-tag "${{ steps.state.outputs.synced_tag }}" \
+            --new-tag "${{ steps.tags.outputs.new_tag }}" \
+            --template-repo "${{ steps.state.outputs.template_repo }}" \
+            > /tmp/pr-body.md
+
+          gh pr create \
+            --title "chore(template-sync): sync to ${{ steps.tags.outputs.new_tag }}" \
+            --body-file /tmp/pr-body.md

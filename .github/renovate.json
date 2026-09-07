@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 6am on monday"],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["patch", "minor"],
+      "groupName": "patch and minor updates",
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "groupName": "major updates"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\nARG \\w+_VERSION=(?<currentValue>.*)\\s"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n\\s*(?:runs-on|runner): \\$\\{\\{ vars\\.[A-Z0-9_]+ \\|\\| '(?<currentValue>[^']+)' \\}\\}"
+      ]
+    }
+  ]
+}

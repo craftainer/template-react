@@ -1,0 +1,15 @@
+# Build context excludes for `docker build` (see top-level Dockerfile).
+.git
+.github
+.devcontainer
+.secrets
+docs
+README.md
+CLAUDE.md
+
+# Node (app runtime): the builder stage runs its own `pnpm install`/
+# `pnpm build` inside the container -- without these, `COPY . .` (after
+# that install) would overwrite the container's own node_modules with
+# the host's, which may not match the container's platform/arch.
+node_modules
+dist
