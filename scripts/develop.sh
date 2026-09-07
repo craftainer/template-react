@@ -68,6 +68,14 @@ ln -s "/usr/local/lib/nodejs/${node_asset}/bin/node" /usr/local/bin/node
 ln -s "/usr/local/lib/nodejs/${node_asset}/bin/npm" /usr/local/bin/npm
 ln -s "/usr/local/lib/nodejs/${node_asset}/bin/npx" /usr/local/bin/npx
 
+# pnpm, via Corepack (bundled with Node.js): this template's own hooks
+# (.pre-commit-config.yaml's oxlint/prettier/tsc/vitest entries) and CI
+# invoke `pnpm` directly, and the pinned version comes from package.json's
+# `packageManager` field, which Corepack reads on first invocation --
+# matching the Dockerfile builder stage's `corepack enable`. Shims go
+# straight to /usr/local/bin, alongside node/npm/npx above.
+"/usr/local/lib/nodejs/${node_asset}/bin/corepack" enable --install-directory /usr/local/bin
+
 # prek (https://prek.j178.dev/) is installed as a standalone tool, not a
 # project dependency of any particular language's package manager -- every
 # instance, regardless of language, is expected to run
