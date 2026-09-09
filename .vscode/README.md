@@ -10,6 +10,13 @@ without configuring anything by hand.
 - `tasks.json` — the `prek` task; an instance adds its own
   lint/type-check/test tasks and (if it debugs in-process) a
   `launch.json`.
+- `launch.json` — the "Dev server" configuration (`pnpm dev` in an
+  integrated terminal via `type: node-terminal`); Run and Debug just
+  starts the process, it isn't attaching a debugger. Opening it in a
+  browser happens on its own: `devcontainer.json`'s `portsAttributes`
+  for port 5173 is set to `onAutoForward: openPreview`, so VS Code's
+  own automatic port forwarding opens the Simple Browser once Vite
+  binds the port — no `serverReadyAction` needed.
 
 ## Do
 

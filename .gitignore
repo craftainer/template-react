@@ -59,6 +59,7 @@ dist/
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/extensions.json
+!.vscode/launch.json
 !.vscode/*.code-snippets
 !.vscode/README.md
 
