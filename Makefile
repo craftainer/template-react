@@ -1,19 +1,31 @@
 # The release contract release.yml drives -- see docs/TEMPLATE.md's
-# "Release: a Makefile contract" section. This template itself ships no
-# artifact, so every target is a documented no-op; an instance reimplements
-# each target for its own artifact type (an OCI image, a package, a chart,
-# ...) without needing to touch release.yml.
+# "Release: a Makefile contract" section. This instance's one release
+# artifact is the `runner` stage's production image, tagged with
+# RELEASE_VERSION and published to GHCR.
+
+RELEASE_VERSION ?= dev
+IMAGE_NAME ?= ghcr.io/craftainer/template-react
+IMAGE := $(IMAGE_NAME):$(RELEASE_VERSION)
+
+# renovate: datasource=docker depName=anchore/syft
+SYFT_VERSION = v1.18.1
 
 .PHONY: build sbom release-assets publish
 
 build:
-	@echo "template-base ships no artifact -- nothing to build."
+	docker build --target runner --tag $(IMAGE) .
 
 sbom:
-	@echo "template-base ships no artifact -- nothing to scan."
+	@mkdir -p dist
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+		anchore/syft:$(SYFT_VERSION) $(IMAGE) -o cyclonedx-json > dist/sbom.cdx.json
 
 release-assets:
 	@mkdir -p dist
 
 publish:
-	@echo "template-base ships no artifact -- nothing to publish."
+	@if [ -z "$$GITHUB_TOKEN" ] && [ -z "$$GHCR_TOKEN" ]; then \
+		echo "No GHCR credentials in the environment -- skipping publish."; \
+	else \
+		docker push $(IMAGE); \
+	fi

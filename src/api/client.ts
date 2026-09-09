@@ -1,6 +1,6 @@
 // Talks to the backend exclusively via the same-origin `/api` path -- the Vite
 // dev server proxies it in development (vite.config.ts) and nginx proxies it
-// in the runner image (docker/nginx.conf.template), so this client never needs
+// in the runner image (scripts/docker/nginx.conf.template), so this client never needs
 // the backend's own origin and the backend never needs CORS configured for
 // this app. See docs/adrs/0002-same-origin-api-proxy.md.
 

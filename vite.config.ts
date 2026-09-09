@@ -16,6 +16,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // Static assets live under src/ alongside the rest of the app rather
+    // than at the project root (Vite's default `public/`).
+    publicDir: "src/public",
     server: {
       host: true,
       proxy: {

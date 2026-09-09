@@ -101,9 +101,9 @@ RUN pnpm build
 # runner — nginx-unprivileged serving the built SPA and proxying /api to
 # the real backend (see docs/adrs/0002-same-origin-api-proxy.md). Its own
 # docker-entrypoint.d/20-envsubst-on-templates.sh already renders
-# docker/nginx.conf.template -> /etc/nginx/conf.d/default.conf from real
-# container env vars on every start; docker-entrypoint.d/ here adds one
-# more such script for this app's own /config.js (its client-side
+# scripts/docker/nginx.conf.template -> /etc/nginx/conf.d/default.conf from
+# real container env vars on every start; docker-entrypoint.d/ here adds
+# one more such script for this app's own /config.js (its client-side
 # runtime config), same mechanism, one level up the stack.
 ########################################
 FROM nginxinc/nginx-unprivileged:${NGINX_VERSION} AS runner
@@ -115,8 +115,8 @@ ENV OIDC_AUTHORITY=http://localhost:8080/realms/template-fastapi \
     OIDC_CLIENT_ID=api \
     API_PROXY_TARGET=http://host.docker.internal:8000
 
-COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
-COPY docker/docker-entrypoint.d/20-envsubst-app-config.sh /docker-entrypoint.d/20-envsubst-app-config.sh
+COPY scripts/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY scripts/docker/docker-entrypoint.d/20-envsubst-app-config.sh /docker-entrypoint.d/20-envsubst-app-config.sh
 # The base image already switches to its unprivileged `nginx` user
 # (uid/gid 101) -- root only for this one COPY+chown, since --chown alone
 # reaches the *copied files* but not the pre-existing

@@ -27,7 +27,7 @@ configuring CORS on the backend:
   stripping the `/api` prefix. `src/api/client.ts`'s `apiFetch` always
   fetches `/api${path}`, so the app code never knows or cares where the
   backend actually is.
-- **Prod**: the `runner` stage's nginx (`docker/nginx.conf.template`)
+- **Prod**: the `runner` stage's nginx (`scripts/docker/nginx.conf.template`)
   proxies `/api/` the same way, to `API_PROXY_TARGET`, alongside serving
   the built SPA with a history-mode fallback.
 
@@ -56,7 +56,7 @@ the OIDC settings baked into `src/auth/config.ts`
 (`docs/adrs/0001-oidc-auth-matching-the-backend.md`). Those are normally
 Vite build-time env vars, which would otherwise mean rebuilding the
 image to point a deployed instance at a different realm/client. Instead,
-the `runner` stage generates `public/config.js.template` →
+the `runner` stage generates `src/public/config.js.template` →
 `/usr/share/nginx/html/config.js` via `envsubst` from real container env
 vars on every container _start_ (the same templating mechanism nginx's
 own base image already provides for `nginx.conf.template`, run once more

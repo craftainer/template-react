@@ -6,6 +6,10 @@
   runtime/tooling install on top, either by extending this script or
   copying its shape into a second one invoked from the instance's own
   `Dockerfile` layer.
+- `docker/` — this instance's own runner-stage assets: `nginx.conf.template`
+  and `docker-entrypoint.d/20-envsubst-app-config.sh`, both `COPY`'d into
+  the `runner` stage by the Dockerfile. Instance-owned, not part of the
+  base template.
 
 ## Do
 

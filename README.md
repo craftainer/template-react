@@ -42,7 +42,7 @@ pnpm build      # production bundle -> dist/
 
 This app never talks to the backend directly from the browser — every
 request goes through a same-origin `/api` proxy (`vite.config.ts` in
-dev, `docker/nginx.conf.template` in the built image), so the backend
+dev, `scripts/docker/nginx.conf.template` in the built image), so the backend
 never needs CORS configured for this app. See
 [`docs/adrs/0002-same-origin-api-proxy.md`](docs/adrs/0002-same-origin-api-proxy.md)
 for the full reasoning; in short:
