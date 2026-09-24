@@ -7,7 +7,13 @@
 - `template_sync_manifest.py` — parses `../template-sync-manifest.yml`
   and checks that every git-tracked path matches exactly one tier;
   backs both the `template-sync-manifest` prek hook and
-  `../workflows/template-sync.yml`'s own use of the manifest.
+  `../workflows/template-sync.yml`'s own use of the manifest. The check
+  also merges in an instance's optional
+  `../template-sync-manifest.local.yml` (`ignore` tier only).
+- `check_devcontainer_lock.py` — checks that every remote feature in
+  `../../.devcontainer/devcontainer.json` has a matching entry in
+  `devcontainer-lock.json` and vice versa; backs the
+  `devcontainer-lock` prek hook.
 - `template_sync.py` — the diff/apply/state-file logic behind
   `../workflows/template-sync.yml`: picks the latest tag for a channel,
   applies the `replace`/`merge` tiers between two template checkouts and
@@ -32,7 +38,6 @@
 
 - Keep scripts here dependency-free (stdlib only) — they run before
   `uv sync` in the release workflow.
-- Add a test in `../../tests/` for any new logic here that isn't trivial.
 
 ## Don't
 

@@ -1,8 +1,10 @@
 # Manually-triggered SemVer release: computes the tag/version, then runs
-# the instance's own Makefile release contract (build/sbom/release-assets/
-# publish -- see docs/TEMPLATE.md's "Release: a Makefile contract" section)
-# and creates a GitHub release with everything the instance's Makefile
-# populated into dist/.
+# the instance's own Makefile release contract (see docs/TEMPLATE.md's
+# "Release: a Makefile contract" section) and creates a GitHub release
+# with everything the instance's Makefile populated into dist/:
+# `release-arches` picks the arch matrix; `build`/`sbom`/`release-assets`/
+# `publish` run once per arch on a native runner; then `release-check`
+# runs inside the devcontainer and `finalize` on the host, once.
 name: Release
 
 on:
@@ -32,7 +34,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   version:
@@ -42,6 +43,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
+      arches: ${{ steps.arches.outputs.arches }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
@@ -56,38 +58,44 @@ jobs:
             --release-type "${{ inputs.release_type }}" \
             >> "$GITHUB_OUTPUT"
 
-  release:
+      - name: Get release arches
+        id: arches
+        run: echo "arches=$(make -s release-arches)" >> "$GITHUB_OUTPUT"
+
+  build:
     needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.version.outputs.arches) }}
     # renovate: datasource=github-runners depName=ubuntu
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || (vars.CI_RUNNER_AMD64 || 'ubuntu-24.04') }}
     env:
       RELEASE_VERSION: ${{ needs.version.outputs.version }}
       RELEASE_TAG: ${{ needs.version.outputs.tag }}
+      RELEASE_ARCH: ${{ matrix.arch }}
+      OCI_REGISTRY: ${{ vars.OCI_REGISTRY }}
+      OCI_IMAGE_NAME: ${{ vars.OCI_IMAGE_NAME }}
+      OCI_REGISTRY_USERNAME: ${{ secrets.OCI_REGISTRY_USERNAME }}
+      OCI_REGISTRY_PASSWORD: ${{ secrets.OCI_REGISTRY_PASSWORD }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
 
-      # GITHUB_TOKEN's packages:write scope (see this workflow's
-      # `permissions:` above) is enough to push to this repo's own GHCR
-      # namespace -- Makefile's `publish` target checks for either this
-      # or GHCR_TOKEN before pushing, and skips cleanly otherwise (e.g. a
-      # local `make publish`).
-      - name: Log in to GHCR
-        uses: docker/login-action@v3.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+      # Exposes ACTIONS_RUNTIME_TOKEN/ACTIONS_RESULTS_URL to `run:` steps so
+      # a `make build` can use `--cache-to type=gha`.
+      - name: Expose GitHub Actions runtime
+        uses: crazy-max/ghaction-github-runtime@v4.0.0
 
       # Each target is the instance's own responsibility -- see
       # docs/TEMPLATE.md's "Release: a Makefile contract" section for what
       # each one is expected to do. A repo with nothing to build/publish
-      # (e.g. most infra-only instances) still implements each target,
-      # even as a no-op, so this workflow never needs an instance-specific
-      # branch.
+      # still implements each target, even as a no-op, so this workflow
+      # never needs an instance-specific branch.
       - name: Build release artifact(s)
         run: make build
 
@@ -98,9 +106,68 @@ jobs:
         run: make release-assets
 
       - name: Publish
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: make publish
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: release-assets-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: ignore
+
+  release:
+    needs: [version, build]
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Download release assets
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: release-assets-*
+          merge-multiple: true
+          path: dist/
+
+      # Unique per run so concurrent runs (two PRs, or a re-run) never
+      # collide on container/volume/network names, and so the teardown
+      # step below tears down exactly this run's stack and nothing else.
+      - name: Set compose project name
+        run: echo "COMPOSE_PROJECT_NAME=ci-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+
+      # Values come from this step's `env:`; the `env:` input below names
+      # which of them devcontainers/ci forwards into the container.
+      - name: Run release-check in the devcontainer
+        uses: devcontainers/ci@v0.3
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        with:
+          runCmd: make release-check
+          env: |
+            RELEASE_VERSION
+            RELEASE_TAG
+
+      # devcontainers/ci starts the full compose stack but never tears it
+      # down -- see checks.yml's identical step.
+      - name: Tear down devcontainer stack
+        if: always()
+        run: |
+          docker compose \
+            -p ${{ env.COMPOSE_PROJECT_NAME }} \
+            down --volumes --remove-orphans
+
+      - name: Finalize
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          OCI_REGISTRY: ${{ vars.OCI_REGISTRY }}
+          OCI_IMAGE_NAME: ${{ vars.OCI_IMAGE_NAME }}
+          OCI_REGISTRY_USERNAME: ${{ secrets.OCI_REGISTRY_USERNAME }}
+          OCI_REGISTRY_PASSWORD: ${{ secrets.OCI_REGISTRY_PASSWORD }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make finalize
 
       # Lets `gh` create the tag itself (from the checked-out commit) and
       # the release in one step, using GitHub's own "generate release

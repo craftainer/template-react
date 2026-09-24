@@ -27,19 +27,19 @@ configuring CORS on the backend:
   stripping the `/api` prefix. `src/api/client.ts`'s `apiFetch` always
   fetches `/api${path}`, so the app code never knows or cares where the
   backend actually is.
-- **Prod**: the `runner` stage's nginx (`scripts/docker/nginx.conf.template`)
+- **Prod**: `app.Dockerfile`'s `runner` stage's nginx (`scripts/docker/nginx.conf.template`)
   proxies `/api/` the same way, to `API_PROXY_TARGET`, alongside serving
   the built SPA with a history-mode fallback.
 
 `VITE_API_PROXY_TARGET` defaults to `http://host.docker.internal:8000`:
 since this app's devcontainer and the backend's are separate compose
-projects, there is no project network to name the backend's `api`
+projects, there is no project network to name the backend's `myapp`
 service on directly. The backend's own `devcontainer.json` already
-forwards its `api` service's port 8000 to the _host_; `host.docker.internal`
-(reachable via `compose.yml`'s `extra_hosts: host.docker.internal:host-gateway`,
+forwards its `myapp` service's port 8000 to the _host_; `host.docker.internal`
+(reachable via `compose.instance.yml`'s `extra_hosts: host.docker.internal:host-gateway`,
 which works the same on Docker Desktop and Linux Docker Engine) reaches
 that forwarded port from inside this app's own container. This avoids
-adding a `networks:`/`ports:` block to `compose.yml` (see
+adding a `networks:`/`ports:` block to either compose file (see
 `.devcontainer/README.md`'s "Don't") and needs no change to the backend
 repo at all. A developer running the backend directly on the host
 instead of in its own devcontainer overrides `VITE_API_PROXY_TARGET` to
@@ -78,7 +78,7 @@ is expected to set `API_PROXY_TARGET` (and `OIDC_AUTHORITY`) to wherever
 publishes a built image to GitHub Container Registry, most likely that
 published image's own deployed address, not anything devcontainer- or
 compose-network-specific. No `networks:`/`ports:` change to either
-repo's `.devcontainer/compose.yml` is needed for this — the dev-time
+repo's `.devcontainer/` compose files is needed for this — the dev-time
 setup above and a real deployment's config are already decoupled via env
 vars for exactly this reason. Not yet implemented; noted here so the
 next instance of this decision doesn't have to be rediscovered.
@@ -90,7 +90,7 @@ next instance of this decision doesn't have to be rediscovered.
   and that address is itself overridable without a code change (env var
   in dev, container env var in prod).
 - `host.docker.internal` requires Docker Desktop, or Docker Engine
-  20.10+ with the `host-gateway` `extra_hosts` entry `compose.yml`
+  20.10+ with the `host-gateway` `extra_hosts` entry `compose.instance.yml`
   already sets — negligible risk for a devcontainer-based workflow, but
   worth knowing if the dev stack ever moves to a from-scratch Compose
   setup outside a devcontainer.

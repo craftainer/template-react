@@ -2,7 +2,11 @@
 
 ## Status
 
-Draft
+In progress — steps 2–6 done on `chore/adopt-template-base-v1.2`
+(local v1.0.0 → v1.2.3 apply, checks and an arm64 `make build sbom
+release-assets` + image smoke test pass). Remaining: devcontainer
+rebuild, the post-merge repo settings and sync bootstrap (step 7), then
+the upstream fixes (step 1) and the sign-in check (step 8).
 
 ## Goal
 

@@ -39,7 +39,7 @@ asks afterward.
 
 5. **Report to the user** as a single markdown list grouped by OWASP
    category, each item: `path:line — one-sentence defect — concrete
-failure scenario`. Skip categories with no findings; don't pad the
+   failure scenario`. Skip categories with no findings; don't pad the
    report with reassurance about what's fine.
 
 ## OWASP Top Ten (2025) checklist for each agent

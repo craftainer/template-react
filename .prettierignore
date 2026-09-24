@@ -1,0 +1,21 @@
+# Files template-base owns (replace/merge tier in
+# .github/template-sync-manifest.yml): prettier reformatting them would
+# make every template sync revert that formatting and fail `pnpm format`,
+# or turn a clean 3-way merge into a conflict.
+CLAUDE.md
+docs/README.md
+docs/TEMPLATE.md
+docs/*/README.md
+docs/*/template.md
+scripts/*.md
+scripts/*.d/README.md
+.claude/
+.devcontainer/
+.github/
+.secrets/
+.vscode/README.md
+.vscode/extensions.json
+.vscode/settings.json
+.vscode/tasks.json
+.pre-commit-config.yaml
+.mcp.json

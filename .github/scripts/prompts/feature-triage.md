@@ -40,7 +40,7 @@ comment and a label -- never leave the issue untouched.
   make the approach concrete and reviewable. Reference any relevant ADR
   instead of repeating its reasoning. Leave Status as `Draft`.
 - Commit with a Conventional Commits message (e.g. `docs: plan for
-#<n>`) and push:
+  #<n>`) and push:
 
       git push -u origin "feature/$GITHUB_ISSUE_NUMBER-plan"
 
@@ -51,7 +51,6 @@ comment and a label -- never leave the issue untouched.
       gh issue comment "$GITHUB_ISSUE_NUMBER" --body "... https://github.com/$repo/blob/feature/$GITHUB_ISSUE_NUMBER-plan/docs/plans/<filename> ..."
 
   Ask the reporter to reply exactly `/confirm` if the plan looks right.
-
 - Label it:
 
       gh issue edit "$GITHUB_ISSUE_NUMBER" --add-label "enhancement:plan-ready"

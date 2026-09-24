@@ -1,6 +1,6 @@
 # One-time (idempotent) label bootstrap for the issue-moderation pipeline
-# -- see ../workflows/README.md's "Issue moderation" section and
-# ../../docs/plans/2026-09-issue-moderator.md for the design. Run manually
+# -- see ../workflows/README.md's "Issue moderation" section for the
+# design. Run manually
 # after adding the ANTHROPIC_API_KEY secret; safe to re-run any time (each
 # label is created or left alone, never removed).
 name: Moderate setup

@@ -1,7 +1,7 @@
 # .claude/
 
 Project-scope Claude Code configuration, shared with every collaborator
-who opens this repo (see the root `.gitignore`, which does _not_ exclude
+who opens this repo (see the root `.gitignore`, which does *not* exclude
 this directory).
 
 - `settings.json` — enables official plugins from the built-in
@@ -19,7 +19,6 @@ this directory).
     confirm this is still true before relying on it.
 
   `settings.json` also wires up the `PostToolUse` hook below.
-
 - `hooks/self-check.sh` — after Claude edits a file, runs the fast,
   pre-commit-stage hooks from `../.pre-commit-config.yaml` (whitespace,
   YAML/TOML/JSON checks, ...) against just that file via `prek`, so

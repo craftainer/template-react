@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
   // app never needs to know its own origin at build time -- see
   // docs/adrs/0002-same-origin-api-proxy.md. VITE_API_PROXY_TARGET defaults
   // to host.docker.internal, reaching the sibling backend repo's own
-  // devcontainer via its forwarded port 8000 (see compose.yml's extra_hosts
+  // devcontainer via its forwarded port 8000 (see .devcontainer/compose.instance.yml's extra_hosts
   // and README.md's "Connecting to the backend") -- override in .env for a
   // backend run directly on the host instead of in its own devcontainer.
   const apiProxyTarget =

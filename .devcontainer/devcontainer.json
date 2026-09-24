@@ -1,11 +1,14 @@
 {
   "name": "template-react",
-  "dockerComposeFile": ["compose.yml"],
-  "service": "app",
+  "dockerComposeFile": [
+    "compose.yml",
+    "compose.instance.yml"
+  ],
+  "service": "myapp",
   "workspaceFolder": "/workspace",
   "shutdownAction": "stopCompose",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:4.1.0": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4.1.1": {
       "moby": false,
       "dockerDashComposeVersion": "v2"
     }
@@ -24,7 +27,7 @@
   "remoteEnv": {
     "SSH_AUTH_SOCK": "/home/vscode/.ssh-agent-resolved.sock"
   },
-  "postCreateCommand": "git config --global --add safe.directory /workspace && pnpm install && prek install",
+  "postCreateCommand": "bash /workspace/scripts/post-create.sh",
   "postStartCommand": "sh /workspace/.devcontainer/resolve-ssh-agent.sh",
   "customizations": {
     "vscode": {

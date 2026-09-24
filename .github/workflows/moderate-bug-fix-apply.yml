@@ -1,0 +1,48 @@
+# Privileged half of the bug-fix pipeline: consumes the artifact produced
+# by moderate-bug-fix.yml (a git patch + outcome metadata -- data, never
+# anything executed) and does the actual push/PR/relabel. Splitting this
+# out of the Claude-running job is what closes CodeQL's
+# actions/untrusted-checkout alert: a job that both runs Claude against
+# untrusted issue text and holds push/PR/label-write credentials is
+# exactly what that rule flags. See ../workflows/README.md's "Issue
+# moderation" section.
+name: Moderate bug fix apply
+
+on:
+  workflow_run:
+    workflows: ["Moderate bug fix"]
+    types: [completed]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  apply:
+    if: github.event.workflow_run.conclusion == 'success'
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Download moderation result
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: moderation-result
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: moderation-result
+
+      - name: Apply result
+        run: |
+          .github/scripts/moderate_apply_result.sh \
+            moderation-result \
+            bug repro \
+            "bug:repro-ready" "bug:confirmed" "bug:fixed" \
+            Fixes

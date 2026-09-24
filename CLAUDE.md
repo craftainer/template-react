@@ -25,7 +25,7 @@ exists there, which would bury the actual project overview — naming it
 When a prompt establishes a new method or convention for this
 repository, decide where it belongs before adding it anywhere:
 
-- A convention about _how an AI assistant should approach work here_
+- A convention about *how an AI assistant should approach work here*
   (workflow, verification habits, context/token handling) — not a
   one-off task — belongs in this file, so it keeps applying afterwards.
 - A convention about the repository or app itself (how a directory is
@@ -35,7 +35,7 @@ repository, decide where it belongs before adding it anywhere:
   belongs in `docs/`, not either of these.
 
 This file should stay small. If a section here starts describing what a
-directory _contains_ rather than how to work with Claude Code, that's a
+directory *contains* rather than how to work with Claude Code, that's a
 sign it belongs in that directory's `README.md` instead.
 
 Don't add a method or convention to this file (or a `README.md`) on your
@@ -50,8 +50,9 @@ Practices below are distilled from Anthropic's own Claude Code guidance
 
 - **Explore, then plan, then implement.** For anything touching more
   than one file, or where the approach isn't obvious, read the
-  relevant code and this file's directory-level `README.md`s (see
-  "Before writing anything" above) and write a plan before editing.
+  relevant code and the `README.md`s on the path to each file you'll
+  touch (see "Before writing anything" above) and write a plan before
+  editing.
   Skip planning for a change you could describe as a one-sentence diff.
   When asked to produce a plan, write it to `docs/plans/` per
   [`docs/plans/README.md`](docs/plans/README.md) rather than only
@@ -64,7 +65,7 @@ Practices below are distilled from Anthropic's own Claude Code guidance
   important changes) — don't create the commit yourself unless asked.
 - **Verify before calling it done.** A change isn't finished until
   something has produced a pass/fail signal against it — `prek run
---all-files --hook-stage manual`, or whatever lint/type-check/test/e2e
+  --all-files --hook-stage manual`, or whatever lint/type-check/test/e2e
   commands the instance layers on top — and you've shown the actual
   output, not just asserted success. "Looks done" is not a verification
   step.

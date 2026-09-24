@@ -13,34 +13,25 @@
   demand. Runs as the same two-leg `amd64`/`arm64` matrix as
   `checks.yml` — this is the check that would actually catch an
   arch-specific runtime break (e.g. a C-extension dependency missing an
-  arm64 wheel), since `checks.yml`'s `pytest` run uses `MODE=mock`
+  arm64 wheel), since `checks.yml`'s test run uses `MODE=mock`
   in-process fakes for some paths rather than the built image.
 - `release.yml` — manually triggered. Takes a release channel
   (`alpha`/`beta`/`rc`/`full`) and a SemVer 2 bump
   (`major`/`minor`/`patch`/`none`), computes the next tag via
-  `../scripts/compute_next_version.py`, builds the `runner` stage of the
-  root `Dockerfile` natively for both `amd64` and `arm64` (no QEMU —
-  see "Architecture matrix" below), and creates a GitHub release with
-  auto-generated notes and both images attached as arch-suffixed OCI
-  tarballs (`template-fastapi-<version>-amd64.tar` /
-  `-arm64.tar`), one SPDX-JSON SBOM per arch (via
-  `anchore/sbom-action`/Syft), and a single `coverage.xml` report from
-  running the test suite against the released commit. Each built image
-  (both tarballs and, if configured, the registry push) carries
-  standard `org.opencontainers.image.*` labels via
-  `docker/metadata-action`, plus two custom
-  `io.github.<repository_owner>.*` labels pointing at that arch's SBOM
-  and the shared coverage-report release asset, so the image is
-  self-describing. If an OCI registry is configured (see "OCI registry"
-  below), each arch is pushed under its own `<version>-<arch>` tag and
-  then combined into one real multi-arch manifest list at the plain
-  `<version>` tag via `docker buildx imagetools create`, so `docker pull
-template-fastapi:<version>` resolves to the right arch automatically.
+  `../scripts/compute_next_version.py`, then drives the instance's
+  Makefile release contract (see `../../docs/TEMPLATE.md`'s "Release: a
+  Makefile contract"): `make release-arches` picks the arch matrix;
+  `build`/`sbom`/`release-assets`/`publish` run once per arch, natively
+  (no QEMU — see "Architecture matrix" below), each leg uploading its
+  `dist/` as `release-assets-<arch>`; then one job downloads them all,
+  runs `make release-check` inside the devcontainer and `make finalize`
+  on the host, and creates a GitHub release with everything in `dist/`.
 - `moderate-bug-triage.yml` / `moderate-bug-fix.yml` /
-  `moderate-feature-triage.yml` / `moderate-feature-build.yml` /
+  `moderate-bug-fix-apply.yml` / `moderate-feature-triage.yml` /
+  `moderate-feature-build.yml` / `moderate-feature-build-apply.yml` /
   `moderate-cleanup.yml` / `moderate-setup.yml` — see "Issue moderation"
   below.
-- `template-sync.yml` — runs in an _instance_ of this template, not
+- `template-sync.yml` — runs in an *instance* of this template, not
   here (see the root `docs/TEMPLATE.md`'s "Template sync" section and
   `../template-sync-manifest.yml`'s header for the full design). On a
   schedule or `workflow_dispatch`, diffs the instance against the
@@ -71,7 +62,7 @@ and `release.yml`'s `version`/`manifest`/`release` jobs) that aren't
 matrixed by arch.
 
 The devcontainer used for local development (`Dockerfile`'s `develop`
-stage) is deliberately _not_ pinned to a single platform — plain
+stage) is deliberately *not* pinned to a single platform — plain
 `docker build`/`docker compose build` already targets whichever
 architecture the host is on, so an arm64 contributor gets a native
 arm64 devcontainer with no QEMU emulation in their inner loop. Only CI
@@ -81,14 +72,43 @@ verified end-to-end on arm64 hardware on 2026-09-06.
 ## Issue moderation
 
 `moderate-bug-triage.yml`, `moderate-bug-fix.yml`,
-`moderate-feature-triage.yml`, `moderate-feature-build.yml`, and
+`moderate-bug-fix-apply.yml`, `moderate-feature-triage.yml`,
+`moderate-feature-build.yml`, `moderate-feature-build-apply.yml`, and
 `moderate-cleanup.yml` run the `claude` CLI as an issue moderator: on a
 bug report, it verifies the report is actionable, reproduces it as a
 failing test on a branch, and asks the reporter to confirm before a
-second workflow fixes it and opens a PR; on a feature request, it
-verifies the request fits the project, drafts a plan on a branch, and
-asks for confirmation before a second workflow implements it and opens a
-PR.
+second stage fixes it and opens a PR; on a feature request, it verifies
+the request fits the project, drafts a plan on a branch, and asks for
+confirmation before a second stage implements it and opens a PR.
+
+**Fix/build is itself split in two, to keep Claude out of any job that
+can push/PR/relabel.** `moderate-bug-fix.yml` /
+`moderate-feature-build.yml` (`issue_comment`-triggered, `permissions:
+contents: read` only) check out the confirmed branch and run Claude
+against the issue's untrusted title/body/comments, but never hold
+write-scoped credentials -- Claude commits locally (or, if it can't
+converge, writes an explanation to `.moderation-outcome.md`) and the job
+packages that as a `moderation-result` artifact (`../scripts/
+moderate_package_result.sh`: a `git format-patch` diff plus a small JSON
+outcome record — data, nothing executable). `moderate-bug-fix-apply.yml`
+/ `moderate-feature-build-apply.yml` (`workflow_run`-triggered on that
+workflow's completion, `permissions: contents: write, issues: write,
+pull-requests: write`) download the artifact and do the actual
+`git am`/push/`gh pr create`/relabel (`../scripts/
+moderate_apply_result.sh`) — the only things this privileged half ever
+executes are `git`/`gh` calls with literal, fixed arguments (plus the
+patch's file contents, applied as a diff, never as a command). This is
+what a job combining Claude-on-untrusted-text with push/PR/label-write
+credentials would otherwise trip on CodeQL's
+`actions/untrusted-checkout`/`actions/untrusted-checkout-toctou`
+(GitHub's own "pwn requests" pattern, adapted here since there's no
+`pull_request`/`workflow_run` pair to lean on directly — the untrusted
+input is issue text, not a fork's commits). The apply workflow
+re-checks the issue's `*:*-ready` label before acting (a no-op, not an
+error, if it's already gone) since it isn't concurrency-grouped with the
+worker the way every other moderation workflow is -- `workflow_run`
+can't see the issue number to key a group on before the artifact is
+downloaded.
 
 Activating this in a given repo/fork takes two one-time steps, neither
 of which is itself a workflow: provisioning a dedicated Anthropic
@@ -157,11 +177,25 @@ runaway prompt fails closed instead of burning CI/API budget; the actual
 spend cap lives in the Anthropic Console (a dedicated workspace/key with
 a monthly limit), since `claude` itself has no such flag.
 
+**Extra tools.** The read-only Claude jobs are limited to `git`, `gh`,
+file tools and `prek run`. An instance that needs Claude to run more
+(e.g. a targeted repro) sets the optional `MODERATION_EXTRA_TOOLS`
+repository variable to extra comma-separated Claude Code `--allowedTools`
+entries, e.g. `Bash(uv run pytest *)`; it's appended to each read-only
+job's tool list and never applies to the `-apply` workflows, which don't
+run Claude.
+
 A single `moderate-issue-<number>` `concurrency:` group, shared across
-all five moderation workflows, serializes every stage against the same
-issue — a burst of comments can't launch overlapping fix/build jobs, a
-close landing mid-run doesn't race cleanup, and a rapid close-then-reopen
-runs cleanup before the reopened triage's reset step.
+the two triage workflows, the two worker (fix/build) workflows, and
+cleanup, serializes every stage against the same issue — a burst of
+comments can't launch overlapping fix/build jobs, a close landing
+mid-run doesn't race cleanup, and a rapid close-then-reopen runs cleanup
+before the reopened triage's reset step. The two apply workflows sit
+outside that group (see "Fix/build is itself split in two" above) — a
+worker run's own membership in the group is what serializes it against
+everything else, and by the time its artifact exists there's nothing
+left for apply to race except a duplicate apply of the *same* artifact,
+which the label re-check there already makes a no-op.
 
 ## Template sync
 
@@ -174,9 +208,13 @@ variables/secrets, all optional:
   no-ops except during the first cron-scheduled week of the month.
 - `TEMPLATE_SYNC_CHANNEL` (variable, `stable` | `alpha` | `beta` | `rc`,
   default `stable`) — which tag channel to sync to.
-- `TEMPLATE_SYNC_TOKEN` (secret) — a PAT with read access to the
-  template repository, if it's private. Falls back to the default
-  `GITHUB_TOKEN` (works for a public template).
+- `TEMPLATE_SYNC_TOKEN` (secret) — a PAT used to read the template
+  repository and to push the sync branch / open the sync PR. It needs
+  the `workflow` scope (classic PAT) or **Workflows: read/write**
+  (fine-grained), because the default `GITHUB_TOKEN` can't push
+  changes to `.github/workflows/`, and nearly every sync includes some.
+  Falls back to `GITHUB_TOKEN`, which only works for a public template
+  *and* a sync that touches no workflow file.
 
 ## OCI registry
 
@@ -210,11 +248,25 @@ the registry push) carry the same label set, computed once by
   it's one stable prefix per org across every repo/template instance
   that org owns, rather than a per-repo namespace to look up each time.
 
+## Release variables and secrets
+
+`release.yml` passes these to the Makefile targets as environment
+variables of the same name; unset ones are empty, and a target should skip
+cleanly when the registry isn't configured.
+
+- `OCI_REGISTRY` (variable) — registry host (e.g. `ghcr.io`).
+- `OCI_IMAGE_NAME` (variable, optional) — image path within the registry.
+- `OCI_REGISTRY_USERNAME` / `OCI_REGISTRY_PASSWORD` (secrets) —
+  registry credentials.
+- `CI_RUNNER_AMD64` / `CI_RUNNER_ARM64` (variables, optional) — runner
+  labels for each arch leg, defaulting to `ubuntu-24.04` /
+  `ubuntu-24.04-arm`.
+
 ## Do
 
 - Give `release.yml` and `template-sync.yml` `contents: write` and
   nothing broader (`template-sync.yml` also needs `pull-requests:
-write`, for nothing else); leave `checks.yml` at `contents: read`.
+  write`, for nothing else); leave `checks.yml` at `contents: read`.
 
 ## Don't
 

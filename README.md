@@ -25,8 +25,9 @@ decisions:
 ## Getting started
 
 Open this repository in its devcontainer (VS Code's "Reopen in
-Container", or `devcontainer up`) — `postCreateCommand` installs
-dependencies (`pnpm install`) and the git hooks (`prek install`)
+Container", or `devcontainer up`) — `postCreateCommand`
+(`scripts/post-create.sh`) installs the git hooks (`prek install`) and,
+via `scripts/post-create.d/10-pnpm-install.sh`, the dependencies
 automatically. Then:
 
 ```sh
@@ -62,6 +63,18 @@ The built production image takes the equivalent settings as real
 container env vars instead (`API_PROXY_TARGET`, `OIDC_AUTHORITY`,
 `OIDC_CLIENT_ID`) — see the ADR's "Runtime-configurable production
 image" section.
+
+## Production image and releases
+
+The runtime image is `app.Dockerfile`'s `runner` stage
+(`docker build -f app.Dockerfile --target runner .`); the base-owned
+`Dockerfile` only builds the devcontainer. `release.yml` drives the
+`Makefile`, which builds it natively for `amd64` and `arm64` and, when
+the `OCI_REGISTRY` repository variable is set (e.g. `ghcr.io`), pushes
+per-arch tags and combines them into one multi-arch
+`<registry>/<owner>/template-react:<version>` tag. Registry credentials
+are the `OCI_REGISTRY_USERNAME` / `OCI_REGISTRY_PASSWORD` secrets — for
+GHCR, a personal access token with `write:packages`.
 
 ## License
 

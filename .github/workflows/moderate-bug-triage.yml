@@ -1,6 +1,6 @@
 # Claude-driven first triage of a bug report -- see
 # ../workflows/README.md's "Issue moderation" section for the full state
-# machine and ../../docs/plans/2026-09-issue-moderator.md for the design.
+# machine.
 # Dormant (job shows Skipped, not Failed) unless the ANTHROPIC_API_KEY
 # repository secret is configured.
 name: Moderate bug triage
@@ -73,7 +73,7 @@ jobs:
           runCmd: >-
             .github/scripts/run_claude.sh
             .github/scripts/prompts/bug-triage.md
-            "Read,Grep,Glob,Write,Edit,Bash(git *),Bash(gh issue *),Bash(gh repo view:*),Bash(prek run *)"
+            "Read,Grep,Glob,Write,Edit,Bash(git *),Bash(gh issue *),Bash(gh repo view:*),Bash(prek run *)${{ vars.MODERATION_EXTRA_TOOLS && format(',{0}', vars.MODERATION_EXTRA_TOOLS) || '' }}"
             15 120
         env:
           GH_TOKEN: ${{ github.token }}

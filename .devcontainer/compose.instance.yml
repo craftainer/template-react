@@ -1,0 +1,16 @@
+# template-react's instance-owned additions to template-base's compose.yml
+# (whose dev service is named `myapp`). Merged over it by
+# devcontainer.json's dockerComposeFile list.
+services:
+  myapp:
+    # Not a ports:/networks: block, so .devcontainer/README.md's "Don't"
+    # still holds. The sibling backend repo (template-fastapi) is a
+    # *separate* devcontainer/compose project, not a service of this one,
+    # so there's no shared project network to name it on. Its own
+    # devcontainer.json forwards its dev service's port 8000 to the host;
+    # host-gateway lets this container reach that forwarded port the same
+    # way on Docker Desktop and Linux Docker Engine alike. See
+    # docs/adrs/0002-same-origin-api-proxy.md and README.md's "Connecting
+    # to the backend".
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

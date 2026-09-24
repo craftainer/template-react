@@ -35,16 +35,16 @@ jobs:
         run: echo "COMPOSE_PROJECT_NAME=ci-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
 
       # Warms the Buildx layer cache for the devcontainer image (the
       # `develop` stage below) before devcontainers/ci builds it via
-      # `docker compose build`. Same context/target/Dockerfile as
-      # .devcontainer/compose.yml's `app` service, so cache keys line up;
-      # no push/load since this step only needs to populate the cache, not
+      # `docker compose build`. Same context/target/Dockerfile as the dev
+      # service in .devcontainer/compose.yml, so cache keys line up; no
+      # push/load since this step only needs to populate the cache, not
       # produce a usable image.
       - name: Warm devcontainer image build cache
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           target: develop
@@ -63,9 +63,9 @@ jobs:
       # devcontainers/ci starts the full compose stack (see
       # .devcontainer/devcontainer.json's dockerComposeFile) but never
       # tears it down -- that's fine for a throwaway CI VM, but this repo
-      # wants a clean, explicit teardown regardless. Keep this file list
-      # in sync with dockerComposeFile (see .devcontainer/stack/README.md's
-      # "Devcontainer stack pattern").
+      # wants a clean, explicit teardown regardless. Selecting the stack
+      # by project name alone (no -f list) also covers any services an
+      # instance adds through compose.instance.yml's `include:`.
       - name: Tear down devcontainer stack
         if: always()
         run: |

@@ -16,14 +16,37 @@
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^(app\\.)?Dockerfile$/"
+      ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\nARG \\w+_VERSION=(?<currentValue>.*)\\s"
       ]
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/^scripts/develop\\.d/.*\\.sh$/",
+        "/^scripts/post-create\\.d/.*\\.sh$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n[A-Z0-9_]+_VERSION=(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n\\w+_VERSION := (?<currentValue>.*)\\s"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.*\\.ya?ml$/"
+      ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n\\s*(?:runs-on|runner): \\$\\{\\{ vars\\.[A-Z0-9_]+ \\|\\| '(?<currentValue>[^']+)' \\}\\}"
       ]

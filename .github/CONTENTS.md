@@ -10,7 +10,9 @@
   language's own package manifest (e.g. `pyproject.toml`, `Cargo.toml`,
   `package.json`). All patch/minor updates are grouped into a single
   weekly PR that automerges once required checks pass; all major updates
-  are grouped into a separate PR for manual review.
+  are grouped into a separate PR for manual review. Devcontainer feature
+  bumps are the exception: they need a manual lockfile regeneration
+  first (see `../.devcontainer/README.md`).
 - `ISSUE_TEMPLATE/` — issue forms (bug report, feature request) shown
   when opening a new issue.
 - `PULL_REQUEST_TEMPLATE.md` — prefills the description box for new PRs.

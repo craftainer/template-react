@@ -101,3 +101,19 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit, manual]
+
+      - id: devcontainer-lock
+        name: devcontainer-lock (lockfile matches devcontainer.json features)
+        entry: python3 .github/scripts/check_devcontainer_lock.py
+        language: system
+        files: ^\.devcontainer/devcontainer(-lock)?\.json$
+        pass_filenames: false
+        stages: [pre-commit, manual]
+
+      - id: check-dockerfile-versions
+        name: check-dockerfile-versions (Dockerfile and app.Dockerfile agree)
+        entry: scripts/check-dockerfile-versions.sh
+        language: system
+        files: ^(app\.)?Dockerfile$
+        pass_filenames: false
+        stages: [pre-commit, manual]

@@ -35,8 +35,14 @@ jobs:
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     steps:
+      # TEMPLATE_SYNC_TOKEN, not the default GITHUB_TOKEN: checkout stores
+      # this token for the later `git push`, and GITHUB_TOKEN can never
+      # create or update files under .github/workflows/ -- which most
+      # syncs touch. Falls back to GITHUB_TOKEN for a sync that doesn't.
       - name: Check out repository
         uses: actions/checkout@v7.0.1
+        with:
+          token: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
 
       # Belt-and-suspenders against a self-sync loop: this workflow ships
       # inside the template repo itself (craftainer/template-fastapi),
@@ -152,7 +158,7 @@ jobs:
       - name: Open sync PR
         if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
         run: |
           if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain)" ]; then
             echo "Nothing changed -- no-op."

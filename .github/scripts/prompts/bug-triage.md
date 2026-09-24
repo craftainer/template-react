@@ -46,7 +46,7 @@ comment and a label -- never leave the issue untouched.
   together after a reasonable attempt, fall back to case C instead of
   committing a misleading or flaky test.
 - Commit with a Conventional Commits message (e.g. `test: reproduce
-bug in #<n>`) and push:
+  bug in #<n>`) and push:
 
       git push -u origin "bug/$GITHUB_ISSUE_NUMBER-repro"
 

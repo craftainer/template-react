@@ -19,5 +19,5 @@ Local secret files, one file per secret. Never committed — see
 
 - Commit anything here besides `.gitkeep` and this `README.md` — check
   `.gitignore` if a file you added seems to have vanished from `git
-status`, don't disable the ignore rule.
+  status`, don't disable the ignore rule.
 - Put non-secret configuration here — that belongs in the compose files.

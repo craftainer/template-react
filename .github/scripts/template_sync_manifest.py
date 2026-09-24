@@ -16,6 +16,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 TIERS = ("replace", "ignore", "merge")
+LOCAL_MANIFEST_NAME = "template-sync-manifest.local.yml"
 
 
 def parse_manifest(text: str) -> dict[str, list[str]]:
@@ -62,10 +63,29 @@ def tracked_files() -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
-def check(manifest_path: Path) -> list[str]:
-    """Return one error message per tracked path with zero or multiple tier matches."""
+def load_tiers(manifest_path: Path) -> tuple[dict[str, list[str]], list[str]]:
+    """Return the manifest's tiers merged with an instance's local ``ignore`` extras.
+
+    The local file sits next to the manifest and only feeds this completeness
+    check, never sync decisions; anything but ``ignore`` in it is an error.
+    """
     tiers = parse_manifest(manifest_path.read_text())
     errors = []
+    local_path = manifest_path.with_name(LOCAL_MANIFEST_NAME)
+    if local_path.is_file():
+        local = parse_manifest(local_path.read_text())
+        errors.extend(
+            f"{local_path}: only the ignore tier is allowed, found {tier} entries"
+            for tier in TIERS
+            if tier != "ignore" and local[tier]
+        )
+        tiers["ignore"].extend(local["ignore"])
+    return tiers, errors
+
+
+def check(manifest_path: Path) -> list[str]:
+    """Return one error message per tracked path with zero or multiple tier matches."""
+    tiers, errors = load_tiers(manifest_path)
     for path in tracked_files():
         matched = classify(path, tiers)
         if len(matched) == 0:
