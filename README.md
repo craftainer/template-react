@@ -7,7 +7,9 @@ The React frontend for [`template-fastapi`](https://github.com/craftainer/templa
 Vite + React + TypeScript + MUI, authenticating against that backend's
 own Keycloak realm and talking to it exclusively through a same-origin
 `/api` proxy. Itself an instance of
-[`template-base`](https://github.com/craftainer/template-base) — see
+[`template-docker`](https://github.com/craftainer/template-docker) (the
+shared image layer, itself built on
+[`template-base`](https://github.com/craftainer/template-base)) — see
 [`docs/TEMPLATE.md`](docs/TEMPLATE.md) for everything about this
 repository that's identical across every `template-base` instance
 (devcontainer, CI, the release Makefile contract, template sync,
@@ -21,6 +23,9 @@ decisions:
 - [`0002-same-origin-api-proxy.md`](docs/adrs/0002-same-origin-api-proxy.md) —
   the `/api` proxy (dev and prod), cross-repo dev networking, and the
   production image's runtime-configurable settings.
+- [`0003-re-parent-onto-template-docker.md`](docs/adrs/0003-re-parent-onto-template-docker.md) —
+  the image layer from `template-docker`, the `Dockerfile` layout, `image.mk`,
+  and the UI dependency set.
 
 ## Getting started
 
@@ -66,11 +71,12 @@ image" section.
 
 ## Production image and releases
 
-The runtime image is `app.Dockerfile`'s `runner` stage
-(`docker build -f app.Dockerfile --target runner .`); the base-owned
-`Dockerfile` only builds the devcontainer. `release.yml` drives the
-`Makefile`, which builds it natively for `amd64` and `arm64` and, when
-the `OCI_REGISTRY` repository variable is set (e.g. `ghcr.io`), pushes
+The runtime image is the top-level `Dockerfile`'s `runner` stage
+(`docker build --target runner .`); `.devcontainer/Dockerfile` only builds
+the devcontainer. `release.yml` drives the template-docker-owned
+`Makefile` (tuned by this repo's `image.mk`), which builds it natively for
+`amd64` and `arm64`, smoke-tests each image, and, when the `OCI_REGISTRY`
+repository variable is set (e.g. `ghcr.io`), copies the tested images to
 per-arch tags and combines them into one multi-arch
 `<registry>/<owner>/template-react:<version>` tag. Registry credentials
 are the `OCI_REGISTRY_USERNAME` / `OCI_REGISTRY_PASSWORD` secrets — for

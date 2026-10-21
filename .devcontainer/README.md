@@ -3,8 +3,12 @@
 - `devcontainer.json` — references `compose.yml` and `compose.instance.yml`
   as the devcontainer's `dockerComposeFile`, and configures the devcontainer itself
   (features, mounts, editor settings).
-- `compose.yml` — the dev service (`myapp`), built from the top-level
-  `Dockerfile`'s `develop` stage. An instance that needs backing services
+- `Dockerfile` — the devcontainer image (a single `develop` stage), built
+  with the repo root as context; `Dockerfile.dockerignore` holds its
+  build-context excludes. The top-level `Dockerfile` is reserved for an
+  instance's runtime image (`../docs/TEMPLATE.md`).
+- `compose.yml` — the dev service (`myapp`), built from `Dockerfile`'s
+  `develop` stage. An instance that needs backing services
   (a database, a queue, ...) adds its own `stack/` directory (one
   subdirectory per service, each with its own compose fragment) and an
   `include:` list in `compose.instance.yml` pointing at them — see `stack/README.md`'s
@@ -119,7 +123,7 @@ step there. Still worth doing once the container is back:
 
 - Run `prek run --all-files --hook-stage manual` — the same check-suite
   that gates CI (`checks.yml`) — to confirm whatever motivated the
-  rebuild (a `Dockerfile`/`scripts/develop.sh` change, a new tool) works
+  rebuild (a `.devcontainer/Dockerfile`/`scripts/develop.sh` change, a new tool) works
   end-to-end inside the container, not just that the image built.
 - If the change added, removed, or reordered a `mounts` entry, confirm
   it actually took effect — mounts apply only at container creation, not
@@ -129,7 +133,7 @@ step there. Still worth doing once the container is back:
   picked up the new list.
 
 A plain "Reopen in Container" (no rebuild) is enough for changes outside
-`.devcontainer/`, `Dockerfile`, and `scripts/develop.sh` — those only
+`.devcontainer/` and `scripts/develop.sh` — those only
 need the window reconnected, not a fresh image.
 
 ## Do
@@ -143,18 +147,18 @@ need the window reconnected, not a fresh image.
 - Commit `devcontainer-lock.json` in the same change as any feature
   edit in `devcontainer.json`. Regenerate it with
   `npx @devcontainers/cli upgrade --workspace-folder .`, or by
-  rebuilding the devcontainer. Renovate bumps feature versions but
-  never regenerates this file, so its feature-bump PRs fail the
-  `devcontainer-lock` check (and don't automerge) until someone
-  pushes the regenerated lockfile to the Renovate branch.
+  rebuilding the devcontainer. Feature versions are bumped by hand,
+  not by Renovate: Renovate can't regenerate this file, so
+  `../.github/renovate.json` turns its devcontainer feature updates
+  off rather than let them merge with a stale lockfile.
 
 ## Don't
 
 - Bind- or volume-mount a language runtime's dependency tree, or anything
   else you don't want a host antivirus/DLP tool scanning or syncing — it
   lives purely in the container's writable layer instead. (`claude-config`
-  is a deliberate, narrow exception — see `compose.yml`'s comment on that
-  volume.)
+  and `gh-config` are deliberate, narrow exceptions — small login and
+  session state; see `compose.yml`'s comments on those volumes.)
 - Add a `ports:` mapping or a `networks:` block anywhere here.
 - Pin a feature or image version as `latest` — pin the exact version so
   Renovate can bump it deliberately.

@@ -25,13 +25,30 @@ this directory).
   issues are caught and auto-fixed immediately instead of first at commit
   time. An instance's own slower, pre-push-only hooks stay pre-push-only —
   too slow to run after every edit.
+- `agents/plan-executor.md` — the subagent that executes one work item
+  of a `docs/plans/` plan on a faster model (`model: sonnet`), under
+  the main session as orchestrator (see `../CLAUDE.md`, "Execute
+  multi-item work as an orchestrator"). It holds the executor's side of
+  the protocol: what a brief contains, the write-set and no-push rules,
+  the escalation triggers, and the report format.
+- `skills/` — project skills Claude loads when a request matches their
+  `description` (or that you invoke as `/<name>`):
+  - `plan-creation` — writing a `docs/plans/` plan and, when the user
+    has setup to do first, its pre-flight runbook.
+  - `plan-execution` — the orchestrator's side of executing a plan:
+    the rolling queue of `plan-executor` subagents, researched answers
+    to escalations, serialized lanes, gates and close-out.
+  - `owasp-scan` — a parallel OWASP Top Ten scan of `src/`.
+
+  `../CLAUDE.md` points at the two plan skills, so they're used even when
+  a request doesn't match their descriptions word for word.
 - The `PreToolUse` hook on `Bash` runs `snip hook`, the
   [snip](https://github.com/edouard-claude/snip) token-filtering proxy:
   it rewrites supported commands (`git` and others; an instance's own
   language tooling once it's added) to return only their signal
   (failures, diffs, summaries) instead of full output. `snip` itself is
-  installed by `scripts/develop.sh`, pinned to `SNIP_VERSION` in the
-  Dockerfile, and checksum-verified against its published release
+  installed by `scripts/develop.sh`, pinned to `SNIP_VERSION` in
+  `../.devcontainer/Dockerfile`, and checksum-verified against its published release
   checksums — see "Versions and config" in `docs/TEMPLATE.md`. Chosen
   over the more popular
   [rtk](https://github.com/rtk-ai/rtk) because its filters are
@@ -45,8 +62,8 @@ this directory).
   - `clear-thought` (`@waldzellai/clear-thought-onepointfive`) — a
     local stdio MCP server exposing structured reasoning/mental-model
     tools, launched via `npx`. `npx` needs Node.js, which is the only
-    reason `scripts/develop.sh` installs it (pinned via the Dockerfile's
-    `NODE_VERSION` ARG) — Claude Code itself doesn't need it.
+    reason `scripts/develop.sh` installs it (pinned via
+    `../.devcontainer/Dockerfile`'s `NODE_VERSION` ARG) — Claude Code itself doesn't need it.
 
   An instance adds its own stack-specific MCP servers here (database,
   object storage, browser automation, ...), pinned to an exact
@@ -67,10 +84,10 @@ this directory).
 ## Removing a tool
 
 - **snip**: delete the `PreToolUse` hook entry in `settings.json` and the
-  `snip` install block (and `SNIP_VERSION` ARG in the Dockerfile) from
+  `snip` install block (and `SNIP_VERSION` ARG in `../.devcontainer/Dockerfile`) from
   `scripts/develop.sh`.
 - **context7** / **security-guidance**: delete the plugin's
   `enabledPlugins` entry in `settings.json`.
 - **clear-thought**: delete its entry from `../.mcp.json`; if nothing
   else needs Node.js, also remove its install block (and `NODE_VERSION`
-  ARG) from `../Dockerfile`/`scripts/develop.sh`.
+  ARG) from `../.devcontainer/Dockerfile`/`scripts/develop.sh`.

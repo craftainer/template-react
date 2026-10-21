@@ -47,6 +47,7 @@ jobs:
         uses: docker/build-push-action@v7.4.0
         with:
           context: .
+          file: .devcontainer/Dockerfile
           target: develop
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}

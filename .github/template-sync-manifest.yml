@@ -10,18 +10,16 @@
 # wants a template-owned path gone for good should move its pattern to
 # "ignore" in a template release rather than deleting the file locally.
 #
-# This is template-react's own manifest, classifying its full tracked-file
-# set for its instances (paralleling template-fastapi's for the backend).
-# template-react is itself an instance of template-base, whose manifest is
-# "merge" tier, so this file keeps its React-specific entries across base
-# syncs and takes base's additions by hand. It is "merge" tier here too: a
-# repo that's both an instance of template-react and its own template for
-# further instances edits this file directly and resolves this file's
-# additions by hand.
+# This started as template-docker's manifest (itself template-base's, grown):
+# template-react is an instance of template-docker and its own template (the
+# React app layer) for further instances, so it edits this file directly,
+# covering its own (larger) tracked-file set, and resolves template-docker's
+# additions by hand. Paths template-docker classifies "ignore" because an
+# instance owns them (Dockerfile, image.mk, the hook scripts) are classified
+# here for template-react's own instances instead.
 #
 # An instance that isn't itself a template doesn't edit this file; it lists
-# its own files (e.g. extra hook scripts) in
-# ../template-sync-manifest.local.yml instead --
+# its own extra files in ../template-sync-manifest.local.yml instead --
 # same format, "ignore" tier only, read by the completeness check but never
 # by sync.
 #
@@ -35,6 +33,7 @@ replace:
   # them, so a sync can overwrite them safely.
   - .claude/hooks/self-check.sh
   - .claude/skills/
+  - .claude/agents/
   - .devcontainer/compose.yml
   - .devcontainer/devcontainer-lock.json
   - .devcontainer/resolve-ssh-agent.sh
@@ -57,7 +56,8 @@ replace:
   - .github/PULL_REQUEST_TEMPLATE.md
 
   # Build/dependency/hook plumbing, all instance-agnostic.
-  - Dockerfile
+  - .devcontainer/Dockerfile
+  - .devcontainer/Dockerfile.dockerignore
   - .gitattributes
   - scripts/develop.sh
   - scripts/post-create.sh
@@ -79,19 +79,31 @@ replace:
   - docs/plans/README.md
   - docs/plans/template.md
 
-  # template-react's own layer on top of base: the runtime image and its
-  # assets, the release Makefile, the dev-service compose additions, the
+  # template-docker's own layer on top of base: the image-release Makefile
+  # (identical for every image-shipping app; instances customise it only
+  # through variables in image.mk), the smoke test, and the runner-setup
+  # driver. Hook scripts are listed one by one, not as globs: an instance's
+  # own scripts/runner-setup.d/*.sh are ignore tier (below).
+  # Same precedent as template-python-package: the Makefile implements the
+  # release contract identically for every instance, so it's template-owned.
+  - Makefile
+  - scripts/image-smoke.sh
+  - scripts/runner-setup.sh
+  - scripts/runner-setup.d/README.md
+  - scripts/check-dockerfile-versions.sh
+  - scripts/image-scan.sh
+  - scripts/skopeo.sh
+
+  # template-react's own layer on top of docker's: the runtime image (an
+  # nginx-served SPA) and its assets, the dev-service compose additions, the
   # hook scripts, and the Vite/TypeScript/lint/format plumbing -- an
   # instance changing these is changing the build tooling, not its app.
-  # Listed one by one where base's hook directories are "ignore" for plain
-  # base instances -- an instance's own extra hook scripts go in its
+  # Listed one by one where docker's hook directories are "ignore" for plain
+  # docker instances -- an instance's own extra hook scripts go in its
   # template-sync-manifest.local.yml.
-  - app.Dockerfile
-  - app.Dockerfile.dockerignore
-  - Makefile
+  - Dockerfile
   - .devcontainer/compose.instance.yml
   - scripts/docker/
-  - scripts/check-dockerfile-versions.sh
   - scripts/develop.d/10-corepack.sh
   - scripts/post-create.d/10-pnpm-install.sh
   - .vscode/launch.json
@@ -108,6 +120,19 @@ ignore:
   # Each instance chooses its own license and copyright holder.
   - LICENSE
 
+  # Derived from package.json, which is merge-tier -- a 3-way merge of a
+  # lock file is unreliable, so an instance regenerates it locally with
+  # `pnpm install` after a sync PR changes package.json.
+  - pnpm-lock.yaml
+
+  # The app itself: the generic CRUD client and Heroes example are a
+  # starting point an instance owns from the moment it's instantiated, so a
+  # sync never overwrites its code or static assets.
+  - src/
+
+  # Env-var documentation for the instance's own deployment.
+  - .env.example
+
   # Product/domain knowledge and working plans: instance-owned from the
   # moment it's instantiated.
   - docs/architecture.md
@@ -122,18 +147,10 @@ ignore:
   # Instance-owned bookkeeping, written only by the sync workflow itself.
   - .github/template-sync-state.json
 
-  # The app itself: the generic CRUD client and Heroes example are a
-  # starting point an instance owns from the moment it's instantiated, so a
-  # sync never overwrites its code or static assets.
-  - src/
-
-  # Env-var documentation for the instance's own deployment.
-  - .env.example
-
-  # Derived from package.json, which is merge-tier -- a 3-way merge of a
-  # lock file is unreliable, so an instance regenerates it locally with
-  # `pnpm install` after a sync PR changes package.json.
-  - pnpm-lock.yaml
+  # Hook files an instance drops into runner-setup.d/. (develop.d/ and
+  # post-create.d/ scripts are template-react's own, listed under replace;
+  # an instance's extra ones go in its local manifest.)
+  - scripts/runner-setup.d/*.sh
 
   # An instance's own extra "ignore" patterns for paths this manifest can't
   # know about (see docs/TEMPLATE.md's "Template sync" section).
@@ -144,6 +161,14 @@ merge:
   # instance; everything else in these two files is template-owned.
   - README.md
   - package.json
+  - pnpm-workspace.yaml
+
+  # template-react's image.mk values (smoke port/path, release-check's unit
+  # tests); an instance adds its own on top.
+  - image.mk
+
+  # Baseline excludes the instance extends with its own entries.
+  - .dockerignore
 
   # Files with no include mechanism of their own (JSON configs, prek's
   # .pre-commit-config.yaml), and docs an instance appends to: a three-way
@@ -160,7 +185,6 @@ merge:
   - .pre-commit-config.yaml
   - .mcp.json
   - .gitignore
-  - .dockerignore
   - scripts/README.md
   - docs/TEMPLATE.md
 
