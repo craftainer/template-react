@@ -68,6 +68,14 @@ jobs:
       fail-fast: false
       matrix:
         arch: ${{ fromJSON(needs.version.outputs.arches) }}
+    # Job-level permissions replace the workflow-level ones, so
+    # `contents: write` is repeated. `id-token: write` lets `make publish`
+    # mint a GitHub OIDC token for PyPI, npm and crates.io trusted
+    # publishing; repos that publish to none of them never request one,
+    # so it is unused for them.
+    permissions:
+      contents: write
+      id-token: write
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || (vars.CI_RUNNER_AMD64 || 'ubuntu-24.04') }}
     env:
@@ -78,6 +86,15 @@ jobs:
       OCI_IMAGE_NAME: ${{ vars.OCI_IMAGE_NAME }}
       OCI_REGISTRY_USERNAME: ${{ secrets.OCI_REGISTRY_USERNAME }}
       OCI_REGISTRY_PASSWORD: ${{ secrets.OCI_REGISTRY_PASSWORD }}
+      # Package repos only: `testpypi` or `pypi` selects the index
+      # `make publish` uploads to via trusted publishing; unset skips it.
+      PYPI_PUBLISH: ${{ vars.PYPI_PUBLISH }}
+      # Package repos only: any non-empty value makes `make publish` push
+      # to npm / crates.io; unset skips it. The bootstrap secrets
+      # (NPM_TOKEN, CARGO_REGISTRY_TOKEN) are NOT here -- see the Publish
+      # step.
+      NPM_PUBLISH: ${{ vars.NPM_PUBLISH }}
+      CARGO_PUBLISH: ${{ vars.CARGO_PUBLISH }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Check out repository
@@ -105,11 +122,18 @@ jobs:
       - name: Populate release assets
         run: make release-assets
 
+      # The only step that sees the registry bootstrap tokens. Unset
+      # secrets arrive as empty strings, which the Makefile must treat as
+      # absent. Never map NPM_TOKEN to NODE_AUTH_TOKEN: npm's OIDC trusted
+      # publishing breaks when NODE_AUTH_TOKEN is set, even if empty.
       - name: Publish
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: make publish
 
       - name: Upload release assets
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: release-assets-${{ matrix.arch }}
           path: dist/
@@ -124,7 +148,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Download release assets
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           pattern: release-assets-*
           merge-multiple: true
@@ -143,11 +167,18 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          # So a package's release-check can also install what publish uploaded.
+          PYPI_PUBLISH: ${{ vars.PYPI_PUBLISH }}
+          NPM_PUBLISH: ${{ vars.NPM_PUBLISH }}
+          CARGO_PUBLISH: ${{ vars.CARGO_PUBLISH }}
         with:
           runCmd: make release-check
           env: |
             RELEASE_VERSION
             RELEASE_TAG
+            PYPI_PUBLISH
+            NPM_PUBLISH
+            CARGO_PUBLISH
 
       # devcontainers/ci starts the full compose stack but never tears it
       # down -- see checks.yml's identical step.

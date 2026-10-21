@@ -11,13 +11,28 @@
     {
       "matchUpdateTypes": ["major"],
       "groupName": "major updates"
+    },
+    {
+      "description": "A Python minor (3.14 -> 3.15) is a runtime upgrade for every instance that runs Python as its app runtime: its own runtime Dockerfile must move in step, and its tools must support the new version. Keep it out of the automerged group, as its own PR for manual review.",
+      "matchDatasources": ["python-version"],
+      "matchDepNames": ["python"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "python minor upgrade",
+      "automerge": false
+    },
+    {
+      "description": "Renovate can't regenerate .devcontainer/devcontainer-lock.json, so features are bumped by hand together with it (see .devcontainer/README.md).",
+      "matchManagers": ["devcontainer"],
+      "matchDepTypes": ["feature"],
+      "enabled": false
     }
   ],
   "customManagers": [
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^(app\\.)?Dockerfile$/"
+        "/^Dockerfile$/",
+        "/^\\.devcontainer/Dockerfile$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\nARG \\w+_VERSION=(?<currentValue>.*)\\s"
@@ -50,6 +65,53 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n\\s*(?:runs-on|runner): \\$\\{\\{ vars\\.[A-Z0-9_]+ \\|\\| '(?<currentValue>[^']+)' \\}\\}"
       ]
+    },
+    {
+      "description": "Pinned tool versions in the image-release Makefile and image.mk.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/",
+        "/^image\\.mk$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n[A-Z0-9_]+_VERSION\\s*:?=\\s*(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "description": "The skopeo image pinned by tag and digest in the Makefile; Renovate updates both.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "SKOPEO_IMAGE := quay\\.io/skopeo/stable:(?<currentValue>v[0-9][^@\\s]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "quay.io/skopeo/stable"
+    },
+    {
+      "description": "The hadolint image pinned in the hadolint hook.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.pre-commit-config\\.yaml$/"
+      ],
+      "matchStrings": [
+        "entry: hadolint/hadolint:(?<currentValue>\\S+) hadolint"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "hadolint/hadolint"
+    },
+    {
+      "description": "The Trivy image pinned by tag and digest in scripts/image-scan.sh; Renovate updates both.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^scripts/image-scan\\.sh$/"
+      ],
+      "matchStrings": [
+        "trivy=aquasec/trivy:(?<currentValue>[0-9][^@\\s]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "aquasec/trivy"
     }
   ]
 }

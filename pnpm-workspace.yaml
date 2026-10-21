@@ -1,0 +1,4 @@
+allowBuilds:
+  # esbuild (pulled in by Storybook) ships its binary via per-platform optional
+  # packages; its postinstall is only a fast-path optimisation.
+  esbuild: false

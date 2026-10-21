@@ -110,10 +110,41 @@ repos:
         pass_filenames: false
         stages: [pre-commit, manual]
 
+  # template-docker's image-layer hooks (docs/TEMPLATE.md's "Image layer").
+  - repo: local
+    hooks:
+      # Official hadolint image, pinned (a regex manager in renovate.json
+      # tracks the tag); docker_image runs it with the repo mounted, so no
+      # host install is needed. Fails on warning and above, not info: the
+      # base-owned devcontainer Dockerfile trips info-level DL3066. There is no repo-wide
+      # DL3008 (pin apt package versions) ignore: where a pin would break rebuilds, add a
+      # per-line `# hadolint ignore=DL3008` with a reason.
+      - id: hadolint
+        name: hadolint (Dockerfile lint)
+        entry: hadolint/hadolint:v2.15.1 hadolint --failure-threshold warning
+        language: docker_image
+        files: ^(\.devcontainer/)?Dockerfile$
+        stages: [pre-commit, manual]
+
+      # The toolchain version ARGs must match between the devcontainer image
+      # and the runtime image. An instance appends its own ARG names (e.g.
+      # RUST_VERSION) to this entry.
       - id: check-dockerfile-versions
-        name: check-dockerfile-versions (Dockerfile and app.Dockerfile agree)
-        entry: scripts/check-dockerfile-versions.sh
+        name: check-dockerfile-versions (ARG defaults match across Dockerfiles)
+        entry: bash scripts/check-dockerfile-versions.sh DEBIAN_VERSION NODE_VERSION
         language: system
-        files: ^(app\.)?Dockerfile$
+        files: ^(\.devcontainer/)?Dockerfile$
         pass_filenames: false
         stages: [pre-commit, manual]
+
+      # Vulnerability scan of the built image tar(s) in dist/ with Trivy
+      # (ADR 0001; the Trivy pin and why are in scripts/image-scan.sh).
+      # Manual stage only: it needs `make build` to have produced dist/*.tar
+      # and network for the vulnerability DB. Skips cleanly with no tar.
+      - id: image-scan
+        name: image-scan (Trivy, HIGH/CRITICAL with a fix)
+        entry: bash scripts/image-scan.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
