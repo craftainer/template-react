@@ -94,6 +94,16 @@ repos:
         always_run: true
         stages: [pre-push, manual]
 
+      # Colors and sizes live only in src/theme/ (ADR 0004). The self-test
+      # runs the checker against fixtures so the hook itself can't rot.
+      - id: design-tokens
+        name: design-tokens (no raw colors or px outside src/theme/)
+        entry: bash -c 'bash scripts/check-design-tokens.sh --self-test && bash scripts/check-design-tokens.sh src'
+        language: system
+        pass_filenames: false
+        files: ^(src/.*\.(ts|tsx|css)|scripts/check-design-tokens\.sh)$
+        stages: [pre-commit, manual]
+
       - id: template-sync-manifest
         name: template-sync-manifest (every tracked path classified)
         entry: python3 .github/scripts/template_sync_manifest.py

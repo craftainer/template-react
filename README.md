@@ -26,6 +26,10 @@ decisions:
 - [`0003-re-parent-onto-template-docker.md`](docs/adrs/0003-re-parent-onto-template-docker.md) —
   the image layer from `template-docker`, the `Dockerfile` layout, `image.mk`,
   and the UI dependency set.
+- [`0004-design-system-and-token-lint.md`](docs/adrs/0004-design-system-and-token-lint.md) —
+  the "Field Ledger" design system in `src/theme/` and the hook that keeps raw
+  colors and `px` out of the rest of `src/`; principles in
+  [`docs/design/`](docs/design/README.md).
 
 ## Getting started
 
