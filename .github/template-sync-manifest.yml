@@ -106,6 +106,7 @@ replace:
   - scripts/docker/
   - scripts/develop.d/10-corepack.sh
   - scripts/post-create.d/10-pnpm-install.sh
+  - scripts/check-design-tokens.sh
   - .vscode/launch.json
   - .prettierignore
   - .oxlintrc.json
@@ -140,6 +141,7 @@ ignore:
   - docs/glossary.md
   - docs/stakeholders.md
   - docs/adrs/[0-9]*.md
+  - docs/design/
   - docs/frs/FR-*.md
   - docs/nfrs/NFR-*.md
   - docs/plans/[0-9]*.md

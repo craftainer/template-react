@@ -15,7 +15,7 @@ function App() {
 
   return (
     <>
-      <AppBar position="static" color="default" elevation={1}>
+      <AppBar position="static" elevation={0}>
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             template-react
