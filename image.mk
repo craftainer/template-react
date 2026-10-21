@@ -18,6 +18,8 @@ IMAGE_SMOKE_RUN_ARGS := -e API_PROXY_TARGET=http://127.0.0.1:8000
 
 # The unit tests that were release-check's whole recipe before the image
 # smoke test joined it as a prerequisite.
+# .PHONY so a directory named unit-tests can't make Make skip the tests.
+.PHONY: unit-tests
 release-check: unit-tests
 unit-tests:
 	pnpm test
