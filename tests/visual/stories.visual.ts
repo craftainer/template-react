@@ -36,6 +36,12 @@ async function openStory(page: Page, id: string, scheme: string) {
     `/iframe.html?id=${id}&viewMode=story&globals=theme:${scheme}`,
   );
   // Storybook has rendered the story and run its play function.
+  const phaseOf = () =>
+    (
+      window as unknown as {
+        __STORYBOOK_PREVIEW__?: { currentRender?: { phase?: string } };
+      }
+    ).__STORYBOOK_PREVIEW__?.currentRender?.phase;
   await page.waitForFunction(() => {
     const phase = (
       window as unknown as {
@@ -44,6 +50,9 @@ async function openStory(page: Page, id: string, scheme: string) {
     ).__STORYBOOK_PREVIEW__?.currentRender?.phase;
     return phase === "finished" || phase === "errored" || phase === "aborted";
   });
+  // A story that threw or whose play function failed must fail the test, not
+  // be baselined as an error overlay.
+  expect(await page.evaluate(phaseOf)).toBe("finished");
   // colorSchemeSelector "data" makes MUI set an empty data-<scheme> attribute.
   await expect(page.locator(`html[data-${scheme}]`)).toBeAttached();
   await page.evaluate(() => document.fonts.ready);

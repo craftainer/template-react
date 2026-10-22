@@ -2,7 +2,7 @@
 // usage: node tests/visual/serve.mjs [port]
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join, normalize, resolve } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
 
 const root = resolve(import.meta.dirname, "../../storybook-static");
 const port = Number(process.argv[2] ?? 6006);
@@ -21,9 +21,16 @@ const types = {
 
 createServer((req, res) => {
   const { pathname } = new URL(req.url ?? "/", "http://localhost");
-  const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, "");
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    res.writeHead(400).end();
+    return;
+  }
+  const rel = normalize(decoded).replace(/^([/\\])+/, "");
   let file = resolve(join(root, rel));
-  if (!file.startsWith(root)) {
+  if (file !== root && !file.startsWith(root + sep)) {
     res.writeHead(403).end();
     return;
   }

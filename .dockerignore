@@ -7,6 +7,10 @@
 .vscode
 .claude
 docs
+tests
+storybook-static
+playwright-report
+test-results
 README.md
 CLAUDE.md
 

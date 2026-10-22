@@ -88,7 +88,7 @@ try {
           ";var done=arguments[arguments.length-1];axe.run(document).then(function(r){done(r.violations.map(function(v){return {id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.length,targets:v.nodes.slice(0,3).map(function(n){return n.target.join(' ')})}}))})",
         args: [],
       });
-      summary.push({ file, scheme, violations: axe });
+      summary.push({ file, mode, scheme, violations: axe });
       console.log(`${file}  scheme=${scheme}  axe violations=${axe.length}`);
       for (const v of axe) console.log(`  - [${v.impact}] ${v.id}: ${v.help} (${v.nodes} nodes) ${v.targets.join(" | ")}`);
     }
@@ -98,5 +98,5 @@ try {
   writeFileSync(`${outDir}/${name}-axe.json`, JSON.stringify(summary, null, 2));
   await call("DELETE", s(""));
 }
-const bad = summary.some((r) => r.violations.length > 0 || r.scheme !== r.file.split("-").pop().replace(".png", ""));
+const bad = summary.some((r) => r.violations.length > 0 || r.scheme !== r.mode);
 process.exit(bad ? 1 : 0);

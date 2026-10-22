@@ -21,7 +21,9 @@ mode="${1:-test}"
 args=(--config tests/visual/playwright.config.ts)
 [ "$mode" = update ] && args+=(--update-snapshots)
 
-exec docker run --rm --ipc=host --init \
+# Baselines are arm64 only (ADR 0005): force it so an amd64 host emulates
+# instead of rendering differently or rewriting the baselines on `update`.
+exec docker run --rm --platform linux/arm64 --ipc=host --init \
   -u "$(id -u):$(id -g)" -e HOME=/tmp -e CI="${CI:-}" \
   -v "$PWD:$PWD" -w "$PWD" "$IMAGE" \
   bash -c 'node_modules/.bin/storybook build --quiet && exec node_modules/.bin/playwright test "$@"' _ "${args[@]}" "$@"

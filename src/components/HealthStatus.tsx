@@ -49,7 +49,7 @@ export function HealthStatus() {
   // breakpoint up, so the app bar stays on one line on a phone.
   const detail =
     status === "checking"
-      ? "Checking…"
+      ? "checking…"
       : status === "up"
         ? "up"
         : "unreachable";
