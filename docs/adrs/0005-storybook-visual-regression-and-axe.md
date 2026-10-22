@@ -33,7 +33,7 @@ backend are faked per story with `parameters.auth` (`signedOut`, `signedIn`,
 covered by the design-token lint.
 
 **Browser: Playwright's own Chromium, in the pinned official Playwright image**
-(`mcr.microsoft.com/playwright:v1.64.1-noble`), not the stack's Selenium
+(`mcr.microsoft.com/playwright:v1.64.1-noble`, also pinned by digest), not the stack's Selenium
 Chromium and not a browser installed into the toolchain image. The image tag
 equals the `@playwright/test` version, ships exactly that version's browser
 build and a fixed font set, and is the single renderer for both baselines and
