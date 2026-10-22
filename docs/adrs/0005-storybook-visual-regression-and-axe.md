@@ -63,8 +63,9 @@ committed under `tests/visual/__screenshots__/`.
 `tests/visual/run.sh update`, then look at every changed PNG in the diff
 (`git diff --stat`, open the images) before committing them with the change
 that caused them. Never update to make a red run green without looking. A
-Playwright version bump changes the image tag in `run.sh` and `visual.yml`
-together and regenerates all baselines in the same commit.
+Playwright version bump changes the image tag and its `@sha256:` digest
+(`docker buildx imagetools inspect <image>`, the index digest) in `run.sh` and
+`visual.yml` together and regenerates all baselines in the same commit.
 
 **CI.** `.github/workflows/visual.yml` runs on pull requests and on demand:
 install, `storybook build`, `playwright test`; on failure it uploads

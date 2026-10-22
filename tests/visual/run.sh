@@ -8,9 +8,11 @@
 # Extra arguments after the mode go to `playwright test` (e.g. -g HeroesPage).
 set -euo pipefail
 
-# Must equal the @playwright/test version in package.json: the image ships
-# exactly that version's browser build, and Playwright refuses a mismatch.
-IMAGE="mcr.microsoft.com/playwright:v1.64.1-noble"
+# The tag must equal the @playwright/test version in package.json: the image
+# ships exactly that version's browser build, and Playwright refuses a
+# mismatch. The digest (the multi-arch index) pins the exact bytes and is
+# bumped together with the tag.
+IMAGE="mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf"
 
 cd "$(dirname "$0")/../.."
 mode="${1:-test}"

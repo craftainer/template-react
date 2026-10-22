@@ -15,10 +15,10 @@ jobs:
   visual:
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
-    # Keep the tag equal to @playwright/test in package.json and to IMAGE in
-    # tests/visual/run.sh.
+    # Keep the tag equal to @playwright/test in package.json, and the tag
+    # and digest equal to IMAGE in tests/visual/run.sh.
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
       options: --ipc=host
     steps:
       - name: Check out repository
