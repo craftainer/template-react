@@ -19,5 +19,6 @@ CLAUDE.md
 # the container's node_modules with the host's, which may not match its
 # platform/arch.
 node_modules
+.pnpm-store
 coverage
 dist

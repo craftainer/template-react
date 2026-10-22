@@ -4,7 +4,8 @@ Playwright visual regression and axe checks over the built Storybook
 (ADR 0005).
 
 - `run.sh` — builds Storybook and runs the suite inside the pinned Playwright
-  image; `run.sh update` rewrites the baselines.
+  image; `run.sh update` rewrites the baselines. Arm64 hosts only (the
+  baselines are arm64 renders); the script refuses to run elsewhere.
 - `stories.visual.ts` — one `toHaveScreenshot` and one axe test per story,
   scheme and viewport, generated from the build's `index.json`.
 - `playwright.config.ts`, `serve.mjs` — config and a static server for

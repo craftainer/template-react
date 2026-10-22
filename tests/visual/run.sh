@@ -15,15 +15,20 @@ set -euo pipefail
 IMAGE="mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf"
 
 cd "$(dirname "$0")/../.."
-mode="${1:-test}"
-[ "$#" -gt 0 ] && shift
+mode=test
+case "${1:-}" in test | update) mode="$1" && shift ;; esac
+
+# The baselines are arm64 renders (ADR 0005) and node_modules is mounted from
+# the host, so an amd64 host can neither compare nor update them.
+if [ "$(uname -m)" != aarch64 ] && [ "$(uname -m)" != arm64 ]; then
+  echo "tests/visual/run.sh needs an arm64 host (baselines are arm64, ADR 0005); CI runs it." >&2
+  exit 1
+fi
 
 args=(--config tests/visual/playwright.config.ts)
 [ "$mode" = update ] && args+=(--update-snapshots)
 
-# Baselines are arm64 only (ADR 0005): force it so an amd64 host emulates
-# instead of rendering differently or rewriting the baselines on `update`.
-exec docker run --rm --platform linux/arm64 --ipc=host --init \
+exec docker run --rm --ipc=host --init \
   -u "$(id -u):$(id -g)" -e HOME=/tmp -e CI="${CI:-}" \
   -v "$PWD:$PWD" -w "$PWD" "$IMAGE" \
   bash -c 'node_modules/.bin/storybook build --quiet && exec node_modules/.bin/playwright test "$@"' _ "${args[@]}" "$@"
