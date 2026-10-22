@@ -32,9 +32,9 @@ async function call(method, path, body) {
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(`${method} ${path}: ${JSON.stringify(json)}`);
-  return json.value;
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${method} ${path}: HTTP ${res.status} ${text.slice(0, 500)}`);
+  return JSON.parse(text).value;
 }
 
 const created = await call("POST", "/session", {
