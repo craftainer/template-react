@@ -83,6 +83,8 @@ and later):
 We stay on MUI (plan decision P-D4). `@fontsource/roboto` stays until UI1 swaps
 the theme's fonts.
 
+Update: UI1 (ADR 0004) swapped the fonts and removed `@fontsource/roboto`.
+
 `pnpm-workspace.yaml` (new, merge tier) sets `allowBuilds: { esbuild: false }`.
 pnpm 12 fails an install on an unreviewed dependency build script, and
 Storybook pulls in esbuild, whose postinstall is only a fast path (its binary
