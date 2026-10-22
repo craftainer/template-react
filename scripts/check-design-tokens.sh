@@ -22,6 +22,7 @@ MARKER='design-tokens: allow'
 
 scan() {
   local root="$1" status=0 file
+  root="${root%/}"
   while IFS= read -r -d '' file; do
     local n=0 line
     while IFS= read -r line || [ -n "$line" ]; do
@@ -78,6 +79,9 @@ self_test() {
       fail=1
     fi
   done
+  # A trailing slash on the source dir must not defeat the theme/ exemption.
+  mkdir -p "$d/slash" && cp -r "$d/theme" "$d/slash/theme"
+  scan "$d/slash/" >/dev/null 2>&1 || { echo "self-test: trailing slash broke the theme/ exemption" >&2; fail=1; }
   # theme/ itself must be exempt.
   mkdir -p "$d/only" && cp -r "$d/theme" "$d/only/theme"
   scan "$d/only" >/dev/null 2>&1 || { echo "self-test: src/theme/ was not exempt" >&2; fail=1; }

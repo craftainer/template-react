@@ -63,7 +63,16 @@ try {
       await call("POST", s("/url"), { url });
       await run("localStorage.setItem('mui-mode', arguments[0])", [mode]);
       await call("POST", s("/url"), { url });
-      await new Promise((r) => setTimeout(r, 1500));
+      // Wait (up to 10 s) for the scheme to resolve, then for fonts.
+      for (let i = 0; i < 40; i++) {
+        const cur = await run("return document.documentElement.getAttribute('data-mui-color-scheme')");
+        if (cur === mode) break;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      await call("POST", s("/execute/async"), {
+        script: "var done=arguments[arguments.length-1];document.fonts.ready.then(function(){done(true)})",
+        args: [],
+      });
       // With colorSchemeSelector "data", MUI sets data-mui-color-scheme on <html>.
       const scheme = await run(
         "return document.documentElement.getAttribute('data-mui-color-scheme')",
@@ -83,8 +92,9 @@ try {
     }
   }
 } finally {
+  // Written even when a shot throws, so earlier results are kept.
+  writeFileSync(`${outDir}/${name}-axe.json`, JSON.stringify(summary, null, 2));
   await call("DELETE", s(""));
 }
-writeFileSync(`${outDir}/${name}-axe.json`, JSON.stringify(summary, null, 2));
 const bad = summary.some((r) => r.violations.length > 0 || r.scheme !== r.file.split("-").pop().replace(".png", ""));
 process.exit(bad ? 1 : 0);
