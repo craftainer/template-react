@@ -39,6 +39,16 @@ this directory).
     the rolling queue of `plan-executor` subagents, researched answers
     to escalations, serialized lanes, gates and close-out.
   - `owasp-scan` — a parallel OWASP Top Ten scan of `src/`.
+  - `frontend-design` — how to design UI here: the "Field Ledger"
+    direction and its anti-defaults, proposing 2-3 distinct options for
+    new screens so output doesn't converge on one stock layout, and the
+    token, motion and accessibility rules. Points at
+    `../docs/design/README.md` as the source of truth.
+  - `ui-verify` — the visual verification loop: start the dev server,
+    screenshot 3 viewports (390, 834, 1440) in light and dark, run axe,
+    compare against the intent, iterate. Ships `shoot.mjs`, which drives
+    the stack's existing Selenium over W3C WebDriver, because the
+    Playwright MCP's CDP attach to it fails with a 400.
 
   `../CLAUDE.md` points at the two plan skills, so they're used even when
   a request doesn't match their descriptions word for word.
@@ -65,6 +75,11 @@ this directory).
     reason `scripts/develop.sh` installs it (pinned via
     `../.devcontainer/Dockerfile`'s `NODE_VERSION` ARG) — Claude Code itself doesn't need it.
 
+  - `mui-mcp` (`@mui/mcp`) — MUI's official local stdio MCP server:
+    current Material UI component docs and APIs, launched via `npx`.
+    Pinned to an exact version; `frontend-design` tells Claude to use it
+    rather than guess props.
+
   An instance adds its own stack-specific MCP servers here (database,
   object storage, browser automation, ...), pinned to an exact
   version/commit the same way, and reading credentials via `${VAR}` from
@@ -88,6 +103,7 @@ this directory).
   `scripts/develop.sh`.
 - **context7** / **security-guidance**: delete the plugin's
   `enabledPlugins` entry in `settings.json`.
+- **mui-mcp**: delete its entry from `../.mcp.json`.
 - **clear-thought**: delete its entry from `../.mcp.json`; if nothing
   else needs Node.js, also remove its install block (and `NODE_VERSION`
   ARG) from `../.devcontainer/Dockerfile`/`scripts/develop.sh`.
