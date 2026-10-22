@@ -19,7 +19,8 @@ was a scratch theme; this ADR records how it became the production system.
 **Theme.** `src/theme/` holds one MUI theme (`createTheme` with
 `cssVariables` and `colorSchemes` light and dark) built from `tokens.ts`,
 the only place raw colors and px values live. `colorSchemeSelector` is
-`"data"` (not the prototype's `"media"`) so the app can offer a light/dark
+`"data"` (MUI sets an empty `data-dark` or `data-light` attribute on
+`<html>`; not the prototype's `"media"`) so the app can offer a light/dark
 toggle: with `"media"` MUI cannot set the mode; with `"data"` and
 `defaultMode="system"` it still follows the OS until the user chooses.
 `useColorMode()` wraps MUI's `useColorScheme`. Fonts are imported from

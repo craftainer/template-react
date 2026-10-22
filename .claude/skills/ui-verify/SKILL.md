@@ -32,7 +32,8 @@ not start a second browser service. `shoot.mjs` instead talks W3C
 WebDriver to the stack's existing Selenium, sets the viewport with a
 CDP `Emulation.setDeviceMetricsOverride` command (Grid's `goog/cdp/execute`
 endpoint works), switches the scheme through the `mui-mode` localStorage
-key MUI persists, injects `axe-core` (a transitive dependency of
+key MUI persists, checks that `html[data-dark]` or `html[data-light]`
+matches the requested scheme, injects `axe-core` (a transitive dependency of
 `@axe-core/playwright`) and writes the PNGs:
 
 ```bash

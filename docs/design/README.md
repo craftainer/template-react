@@ -62,7 +62,8 @@ Public API (`import { ... } from "./theme"`): `ThemeProvider`, `theme`,
 - The default is the OS preference. `useColorMode()` returns `mode`
   (`"light" | "dark" | "system"`), `resolved`, `setMode` and `toggle`;
   MUI persists the choice in `localStorage`.
-- Colors switch through CSS variables under a data attribute on the root element, so
+- Colors switch through CSS variables under an `html[data-dark]` or `html[data-light]` attribute (MUI's
+  `colorSchemeSelector: "data"`), so
   `sx` and `theme.vars.*` need no per-scheme branches. Dark is not an
   inversion: ink and paper swap, and accents lighten (vermilion
   `#E8795C`, green `#9CC0A8`) to keep contrast.

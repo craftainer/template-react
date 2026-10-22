@@ -26,7 +26,7 @@ unpinned Debian packages, so the renderer would depend on the day it was built.
 story next to every component (`*.stories.tsx`). `.storybook/preview.tsx` wraps
 every story in the app's own `ThemeProvider` and a toolbar switch for the
 `theme` global (light or dark, applied through MUI's `useColorScheme`, so the
-`data-mui-color-scheme` attribute is the real one). Sign-in state and the
+`html[data-dark]` or `html[data-light]` attribute is the real one). Sign-in state and the
 backend are faked per story with `parameters.auth` (`signedOut`, `signedIn`,
 `loading`) and `parameters.api` (`health`, `heroes`), implemented in
 `.storybook/stubs.tsx`; stories never reach Keycloak or the API. Stories are

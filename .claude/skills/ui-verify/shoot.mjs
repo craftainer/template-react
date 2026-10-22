@@ -50,6 +50,9 @@ const s = (p) => `/session/${sid}${p}`;
 const run = (script, args = []) => call("POST", s("/execute/sync"), { script, args });
 mkdirSync(outDir, { recursive: true });
 
+const schemeScript =
+  "var h=document.documentElement;return h.hasAttribute('data-dark')?'dark':h.hasAttribute('data-light')?'light':null";
+
 const summary = [];
 try {
   for (const vp of viewports) {
@@ -65,7 +68,7 @@ try {
       await call("POST", s("/url"), { url });
       // Wait (up to 10 s) for the scheme to resolve, then for fonts.
       for (let i = 0; i < 40; i++) {
-        const cur = await run("return document.documentElement.getAttribute('data-mui-color-scheme')");
+        const cur = await run(schemeScript);
         if (cur === mode) break;
         await new Promise((r) => setTimeout(r, 250));
       }
@@ -73,10 +76,9 @@ try {
         script: "var done=arguments[arguments.length-1];document.fonts.ready.then(function(){done(true)})",
         args: [],
       });
-      // With colorSchemeSelector "data", MUI sets data-mui-color-scheme on <html>.
-      const scheme = await run(
-        "return document.documentElement.getAttribute('data-mui-color-scheme')",
-      );
+      // With colorSchemeSelector "data", MUI sets an empty html[data-dark] or
+      // html[data-light]; a null scheme or a mismatch fails the run below.
+      const scheme = await run(schemeScript);
       const png = await call("GET", s("/screenshot"));
       const file = `${outDir}/${name}-${vp.label}-${mode}.png`;
       writeFileSync(file, Buffer.from(png, "base64"));
