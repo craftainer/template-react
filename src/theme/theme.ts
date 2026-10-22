@@ -60,6 +60,23 @@ export const theme = createTheme({
       },
     },
     MuiPaper: { styleOverrides: { root: { backgroundImage: "none" } } },
+    // Rules, not shadows (docs/design): floating surfaces get an ink rule.
+    MuiDialog: {
+      styleOverrides: {
+        paper: ({ theme }) => ({
+          boxShadow: "none",
+          border: `2px solid ${theme.vars.palette.text.primary}`,
+        }),
+      },
+    },
+    MuiPopover: {
+      styleOverrides: {
+        paper: ({ theme }) => ({
+          boxShadow: "none",
+          border: `1px solid ${theme.vars.palette.text.primary}`,
+        }),
+      },
+    },
     MuiTableCell: {
       styleOverrides: {
         root: ({ theme }) => ({
