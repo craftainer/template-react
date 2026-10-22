@@ -20,7 +20,8 @@ export function useColorMode() {
     toggle: () => {
       const shown =
         resolved ??
-        (window.matchMedia("(prefers-color-scheme: dark)").matches
+        (typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches
           ? "dark"
           : "light");
       setMode(shown === "dark" ? "light" : "dark");

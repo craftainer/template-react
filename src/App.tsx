@@ -17,14 +17,22 @@ function App() {
     <>
       <AppBar position="static" elevation={0}>
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          <Typography variant="h6" component="h1" noWrap sx={{ flexGrow: 1 }}>
             template-react
           </Typography>
-          <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+          <Stack
+            direction="row"
+            spacing={{ xs: 1, sm: 2 }}
+            sx={{ alignItems: "center", flexShrink: 0 }}
+          >
             <HealthStatus />
             {auth.isAuthenticated ? (
               <>
-                <Typography variant="body2">
+                <Typography
+                  variant="body2"
+                  noWrap
+                  sx={{ maxWidth: { xs: "6rem", sm: "none" } }}
+                >
                   {auth.user?.profile.preferred_username}
                 </Typography>
                 <Button size="small" onClick={() => auth.removeUser()}>
@@ -36,6 +44,7 @@ function App() {
                 size="small"
                 variant="outlined"
                 onClick={() => auth.signinRedirect()}
+                sx={{ whiteSpace: "nowrap" }}
               >
                 Sign in
               </Button>
@@ -44,10 +53,10 @@ function App() {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth="md" sx={{ py: 4 }}>
+      <Container component="main" maxWidth="md" sx={{ py: 4 }}>
         {auth.isLoading ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-            <CircularProgress />
+            <CircularProgress aria-label="Loading" />
           </Box>
         ) : auth.isAuthenticated ? (
           <HeroesPage />
