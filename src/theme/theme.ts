@@ -19,6 +19,7 @@ export const theme = createTheme({
       fontFamily: fontFamily.display,
       fontWeight: 600,
       letterSpacing: "-0.02em",
+      fontVariationSettings: '"opsz" 72',
     },
     h2: {
       fontFamily: fontFamily.display,
@@ -38,9 +39,7 @@ export const theme = createTheme({
     h5: {
       fontFamily: fontFamily.display,
       fontWeight: 600,
-      fontSize: "2.25rem",
       letterSpacing: "-0.02em",
-      fontVariationSettings: '"opsz" 72',
     },
     h6: {
       fontFamily: fontFamily.display,

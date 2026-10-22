@@ -15,6 +15,15 @@ export function useColorMode() {
     mode: mode as ColorMode | undefined,
     resolved,
     setMode: (next: ColorMode) => setMode(next),
-    toggle: () => setMode(resolved === "dark" ? "light" : "dark"),
+    // Before the mode resolves, fall back to the OS preference so the first
+    // click flips what the user sees.
+    toggle: () => {
+      const shown =
+        resolved ??
+        (window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light");
+      setMode(shown === "dark" ? "light" : "dark");
+    },
   };
 }
