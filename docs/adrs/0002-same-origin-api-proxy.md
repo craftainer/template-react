@@ -27,7 +27,7 @@ configuring CORS on the backend:
   stripping the `/api` prefix. `src/api/client.ts`'s `apiFetch` always
   fetches `/api${path}`, so the app code never knows or cares where the
   backend actually is.
-- **Prod**: `app.Dockerfile`'s `runner` stage's nginx (`scripts/docker/nginx.conf.template`)
+- **Prod**: the top-level `Dockerfile`'s `runner` stage's nginx (`scripts/docker/nginx.conf.template`)
   proxies `/api/` the same way, to `API_PROXY_TARGET`, alongside serving
   the built SPA with a history-mode fallback.
 

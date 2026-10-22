@@ -1,0 +1,47 @@
+# Visual regression and axe over the built Storybook (ADR 0005). Runs inside
+# the same pinned Playwright image as tests/visual/run.sh, on arm64: the
+# committed baselines were rendered by that image on arm64, and a different
+# CPU architecture can differ at the pixel level.
+name: Visual
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+    # Keep the tag equal to @playwright/test in package.json, and the tag
+    # and digest equal to IMAGE in tests/visual/run.sh.
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
+      options: --ipc=host
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Install dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Build Storybook
+        run: pnpm exec storybook build --quiet
+
+      - name: Run visual and axe tests
+        run: pnpm exec playwright test --config tests/visual/playwright.config.ts
+
+      # The report holds expected/actual/diff images for each failure.
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

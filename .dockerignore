@@ -1,14 +1,27 @@
-# Build context excludes for `docker build` (see top-level Dockerfile).
+# Build context excludes for the runtime image (top-level Dockerfile). The
+# devcontainer image has its own: .devcontainer/Dockerfile.dockerignore.
+**/node_modules
+coverage
+target
 .git
 .github
 .devcontainer
 .secrets
+.vscode
+.claude
 docs
+tests
+storybook-static
+playwright-report
+test-results
 README.md
 CLAUDE.md
 
-# Node (app runtime): the devcontainer build never needs these, and
-# node_modules alone would bloat its build context. app.Dockerfile's own
-# build uses app.Dockerfile.dockerignore instead.
+# Node (app runtime): the builder stage runs its own `pnpm install` /
+# `pnpm build`; without these, `COPY . .` (after that install) would overwrite
+# the container's node_modules with the host's, which may not match its
+# platform/arch.
 node_modules
+.pnpm-store
+coverage
 dist

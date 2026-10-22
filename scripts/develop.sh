@@ -13,6 +13,7 @@ snip_version=$3
 uv_version=$4
 python_version=$5
 node_version=$6
+gh_version=$7
 
 # xz-utils: Node's own release tarballs are .tar.xz.
 apt-get update
@@ -44,7 +45,7 @@ ln -s "$python_bin" /usr/local/bin/python
 # directly from nodejs.org's own release tarballs (checksum-verified
 # against that release's published SHASUMS256.txt) rather than a
 # devcontainer feature, so every tool this stage installs is pinned the
-# same way, in the same place -- see the Dockerfile's NODE_VERSION ARG.
+# same way, in the same place -- see .devcontainer/Dockerfile's NODE_VERSION ARG.
 node_dpkg_arch="$(dpkg --print-architecture)"
 case "$node_dpkg_arch" in
     amd64) node_arch=x64 ;;
@@ -97,3 +98,24 @@ tar -xzf "${snip_tmpdir}/${snip_asset}" -C "$snip_tmpdir" snip
 sudo -u vscode install -Dm755 "${snip_tmpdir}/snip" /home/vscode/.local/bin/snip
 rm -rf "$snip_tmpdir"
 ln -s /home/vscode/.local/bin/snip /usr/local/bin/snip
+
+# GitHub CLI: CLAUDE.md's workflow drives GitHub (PRs, workflow runs,
+# releases) through `gh`, so it's part of the base toolset rather than a
+# per-instance add-on. Fetched as a release tarball and checksum-verified
+# against the release's own checksums file, like snip above. Its login
+# state lives in the gh-config volume (.devcontainer/compose.yml), so a
+# rebuild doesn't require `gh auth login` again.
+gh_arch="$(dpkg --print-architecture)"
+gh_asset="gh_${gh_version}_linux_${gh_arch}"
+gh_tmpdir="$(mktemp -d)"
+curl -LsSf -o "${gh_tmpdir}/${gh_asset}.tar.gz" \
+    "https://github.com/cli/cli/releases/download/v${gh_version}/${gh_asset}.tar.gz"
+curl -LsSf -o "${gh_tmpdir}/checksums.txt" \
+    "https://github.com/cli/cli/releases/download/v${gh_version}/gh_${gh_version}_checksums.txt"
+(cd "$gh_tmpdir" && grep " ${gh_asset}.tar.gz\$" checksums.txt | sha256sum -c -)
+tar -xzf "${gh_tmpdir}/${gh_asset}.tar.gz" -C "$gh_tmpdir" "${gh_asset}/bin/gh"
+install -Dm755 "${gh_tmpdir}/${gh_asset}/bin/gh" /usr/local/bin/gh
+rm -rf "$gh_tmpdir"
+# Pre-create the gh-config volume's mount point owned by vscode, so a new
+# named volume is initialized with that ownership instead of root's.
+sudo -u vscode mkdir -p /home/vscode/.config/gh

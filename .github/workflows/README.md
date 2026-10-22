@@ -6,15 +6,6 @@
   [`devcontainers/ci`](https://github.com/devcontainers/ci)), under a
   per-run `COMPOSE_PROJECT_NAME` that a final step tears down. Runs as a
   two-leg `amd64`/`arm64` matrix (see "Architecture matrix" below).
-- `smoke.yml` — builds the `runner` stage of the root `Dockerfile` via
-  the root `compose.yml`, starts it against the real Postgres, RustFS,
-  Redis, and Keycloak backing services, and confirms `/health/live` and
-  `/health/ready` both return 200 -- on push, on pull requests, and on
-  demand. Runs as the same two-leg `amd64`/`arm64` matrix as
-  `checks.yml` — this is the check that would actually catch an
-  arch-specific runtime break (e.g. a C-extension dependency missing an
-  arm64 wheel), since `checks.yml`'s test run uses `MODE=mock`
-  in-process fakes for some paths rather than the built image.
 - `release.yml` — manually triggered. Takes a release channel
   (`alpha`/`beta`/`rc`/`full`) and a SemVer 2 bump
   (`major`/`minor`/`patch`/`none`), computes the next tag via
@@ -26,6 +17,10 @@
   `dist/` as `release-assets-<arch>`; then one job downloads them all,
   runs `make release-check` inside the devcontainer and `make finalize`
   on the host, and creates a GitHub release with everything in `dist/`.
+- `visual.yml` — template-react only: builds Storybook and runs the
+  Playwright screenshot and axe suite (`tests/visual/`) inside the pinned
+  Playwright image on the `arm64` runner, uploading the HTML report on
+  failure (see `docs/adrs/0005-storybook-visual-regression-and-axe.md`).
 - `moderate-bug-triage.yml` / `moderate-bug-fix.yml` /
   `moderate-bug-fix-apply.yml` / `moderate-feature-triage.yml` /
   `moderate-feature-build.yml` / `moderate-feature-build-apply.yml` /
@@ -44,7 +39,7 @@ e.g. to point at self-hosted runners.
 
 ## Architecture matrix
 
-`checks.yml`, `smoke.yml`, and `release.yml`'s `build` job each run as a
+`checks.yml` and `release.yml`'s `build` job each run as a
 two-leg matrix over `amd64`/`arm64`, both legs building/testing natively
 — `ubuntu-24.04-arm` is a real (non-emulated) GitHub-hosted Linux arm64
 runner, free on this public repo and billed as ordinary Actions minutes
@@ -61,7 +56,7 @@ still overrides the single-runner jobs (`perf.yml`, `template-sync.yml`,
 and `release.yml`'s `version`/`manifest`/`release` jobs) that aren't
 matrixed by arch.
 
-The devcontainer used for local development (`Dockerfile`'s `develop`
+The devcontainer used for local development (`.devcontainer/Dockerfile`'s `develop`
 stage) is deliberately *not* pinned to a single platform — plain
 `docker build`/`docker compose build` already targets whichever
 architecture the host is on, so an arm64 contributor gets a native
@@ -164,7 +159,7 @@ branch/PR may already be gone via cleanup.
 **Environment.** All four Claude-invoking jobs run `claude` the same way
 `checks.yml` runs `prek`: inside the actual devcontainer (`develop`
 stage) via `devcontainers/ci`, so Claude runs the exact CLI build pinned
-in `Dockerfile`'s `CLAUDE_CODE_VERSION`. Each writes the
+in `.devcontainer/Dockerfile`'s `CLAUDE_CODE_VERSION`. Each writes the
 `ANTHROPIC_API_KEY` secret to `.secrets/claude.txt` first (matching
 `.secrets/README.md`'s "one file per secret" convention) and removes it
 in an `if: always()` step; `../scripts/run_claude.sh` reads it, sets a
@@ -233,20 +228,27 @@ workflow works with no registry configured at all. When it is set:
 
 ## Image labels
 
-Both copies of the published image (the OCI tarball and, if configured,
-the registry push) carry the same label set, computed once by
-`docker/metadata-action`:
+The image is built once, with the label set computed by the Makefile's
+`LABELS` (not by `docker/metadata-action`). The registry copy is that same
+tar pushed with skopeo (`make publish`), not a rebuild, so the labels and
+the digest are those of the tested artifact:
 
-- Standard `org.opencontainers.image.title` / `.description` / `.url` /
-  `.source` / `.revision` (`github.sha`) / `.created` / `.version`,
-  derived from git/GitHub context.
-- `io.github.<repository_owner>.sbom` and
-  `io.github.<repository_owner>.coverage-report` — URLs to that
-  release's SBOM and `coverage.xml` assets. Namespaced under the repo
-  owner (not `org.opencontainers.image.*`, which is reserved for the
-  spec's own keys) and derived from `github.repository_owner` alone, so
-  it's one stable prefix per org across every repo/template instance
-  that org owns, rather than a per-repo namespace to look up each time.
+- `org.opencontainers.image.title` (the repository name), `.source` and
+  `.url` (the repository), `.version` (`RELEASE_VERSION`), `.revision`
+  (`git rev-parse HEAD`), `.created` (the commit time, not the build
+  time), and `.licenses` (`OCI_LICENSE`,
+  default `GPL-3.0-or-later`).
+- `org.opencontainers.image.description`, only when the instance sets
+  `OCI_DESCRIPTION` in `image.mk` (the Makefile has no offline source
+  for the repository description).
+- `io.github.<repository_owner>.sbom` — the URL of that release's SPDX
+  SBOM asset. Namespaced under the repo owner (not
+  `org.opencontainers.image.*`, which is reserved for the spec's own
+  keys) and derived from the repository owner alone, so it's one stable
+  prefix per org across every repo/template instance that org owns.
+- `io.github.<repository_owner>.coverage-report`, only when the instance
+  sets `COVERAGE_REPORT` in `image.mk` to the release asset's name.
+- Whatever the instance adds through `EXTRA_LABELS`.
 
 ## Release variables and secrets
 
@@ -261,12 +263,31 @@ cleanly when the registry isn't configured.
 - `CI_RUNNER_AMD64` / `CI_RUNNER_ARM64` (variables, optional) — runner
   labels for each arch leg, defaulting to `ubuntu-24.04` /
   `ubuntu-24.04-arm`.
+- `PYPI_PUBLISH` (variable, optional) — `testpypi` or `pypi`; selects the
+  index `make publish` uploads to via trusted publishing. Unset skips it.
+- `NPM_PUBLISH` / `CARGO_PUBLISH` (variables, optional) — non-empty makes
+  `make publish` push to npm / crates.io; unset skips it. Passed to
+  `build` and, like `PYPI_PUBLISH`, forwarded to `release-check` so it
+  can install what publish uploaded.
+- `NPM_TOKEN` / `CARGO_REGISTRY_TOKEN` (secrets, optional) — bootstrap
+  tokens for the first release of a package, before trusted publishing
+  is configured. Exposed only on the `make publish` step's `env:`, never
+  job-wide or to any other step. An unset secret arrives as an empty
+  string, so the Makefile must treat empty as absent. `NPM_TOKEN` is
+  deliberately not mapped to `NODE_AUTH_TOKEN`: npm's OIDC trusted
+  publishing breaks when that variable is set, even to an empty string,
+  so the npm template's Makefile decides what to do with `NPM_TOKEN`.
 
 ## Do
 
 - Give `release.yml` and `template-sync.yml` `contents: write` and
   nothing broader (`template-sync.yml` also needs `pull-requests:
   write`, for nothing else); leave `checks.yml` at `contents: read`.
+- Keep `id-token: write` on `release.yml`'s `build` job only (the one
+  running `make publish`): PyPI, npm and crates.io trusted publishing
+  via GitHub OIDC. It is unused by repos that publish to none of them.
+- Keep `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` on the `make publish`
+  step's `env:` only.
 
 ## Don't
 

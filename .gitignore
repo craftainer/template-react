@@ -129,3 +129,8 @@ lerna-debug.log*
 # Claude Code CLI: personal, per-user overrides — never the shared
 # .claude/settings.json.
 .claude/settings.local.json
+
+# Storybook build and Playwright output (ADR 0005)
+storybook-static/
+playwright-report/
+test-results/
