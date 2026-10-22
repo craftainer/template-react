@@ -12,7 +12,9 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "storybook": "storybook dev --port 6006 --no-open",
+    "storybook:build": "storybook build"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

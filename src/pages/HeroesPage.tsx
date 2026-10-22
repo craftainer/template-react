@@ -100,7 +100,9 @@ export function HeroesPage() {
         direction="row"
         sx={{ justifyContent: "space-between", alignItems: "center" }}
       >
-        <Typography variant="h5">Heroes</Typography>
+        <Typography variant="h5" component="h2">
+          Heroes
+        </Typography>
         <Button variant="contained" onClick={() => setDialogOpen(true)}>
           Add hero
         </Button>
@@ -110,7 +112,7 @@ export function HeroesPage() {
 
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-          <CircularProgress />
+          <CircularProgress aria-label="Loading" />
         </Box>
       ) : (
         <TableContainer component={Paper} variant="outlined">

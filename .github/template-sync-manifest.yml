@@ -116,6 +116,18 @@ replace:
   - vite.config.ts
   - vitest.config.ts
   - index.html
+  # Storybook and the visual-regression suite (ADR 0005). Generic: the story
+  # list comes from the build. .storybook/stubs.tsx is not here, it is
+  # instance content (below).
+  - .storybook/main.ts
+  - .storybook/preview.tsx
+  - .storybook/README.md
+  - tests/visual/README.md
+  - tests/visual/playwright.config.ts
+  - tests/visual/serve.mjs
+  - tests/visual/stories.visual.ts
+  - tests/visual/run.sh
+  - .github/workflows/visual.yml
 
 ignore:
   # Each instance chooses its own license and copyright holder.
@@ -130,6 +142,11 @@ ignore:
   # starting point an instance owns from the moment it's instantiated, so a
   # sync never overwrites its code or static assets.
   - src/
+
+  # Story fakes for this app's API and auth (preview.tsx imports its
+  # exports), and the baselines rendered from this app's stories.
+  - .storybook/stubs.tsx
+  - tests/visual/__screenshots__/
 
   # Env-var documentation for the instance's own deployment.
   - .env.example
