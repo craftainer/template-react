@@ -1,14 +1,19 @@
 ---
 name: plan-execution
-description: Execute a docs/plans/ plan, or any task that splits into several independent items, as the orchestrator - briefing plan-executor subagents in their own worktrees, answering their escalations with researched decisions, merging, verifying and running the user gates. Use when the user asks to execute or continue a plan.
+description: Execute a docs/plans/ plan, or any task that splits into several independent items, as the orchestrator - briefing plan-executor subagents (executors and landers) in their own worktrees, answering their escalations with researched decisions and running the user gates. Use when the user asks to execute or continue a plan.
 ---
 
 # Plan execution (orchestrator)
 
-The main session orchestrates; it doesn't implement work items itself.
-Executors are `plan-executor` subagents: their side of the protocol
-(brief contents, write-set rules, escalation triggers, report format) is
-in `.claude/agents/plan-executor.md` and isn't repeated here. Plan layout
+The main session orchestrates; it doesn't implement work items, review
+diffs, run verification lanes or `/code-review`, merge or trigger
+releases itself. It keeps the queue, writes briefs, researches and
+decides escalations, raises user gates and keeps the plan's Status and
+Decision log current. Executors and landers are `plan-executor`
+subagents on the faster model by default: their side of the protocol
+(brief contents, write-set rules, escalation triggers, lander mode,
+report formats) is in `.claude/agents/plan-executor.md` and isn't
+repeated here. Plan layout
 is in `docs/plans/README.md`.
 
 ## Before the first item
@@ -23,9 +28,10 @@ is in `docs/plans/README.md`.
 
 ## The queue
 
-- Keep the plan's target number of executors running. Waves define
-  dependencies, not batches: whenever an executor reports, start the
-  next **ready** item (dependencies merged and verified, write set
+- Keep the plan's target number of agents (executors and landers
+  together) running. Waves define
+  dependencies, not batches: whenever an agent reports, start the
+  next **ready** item (dependencies landed, write set
   disjoint from every running item), critical path first, then the item
   that unblocks the most.
 - Start each with the `Agent` tool, `subagent_type: "plan-executor"`,
@@ -39,12 +45,22 @@ is in `docs/plans/README.md`.
 
 ## When an executor reports
 
-**`done`:** read the diff, not just the summary. Every changed file is
-inside the write set; `CHECKS` shows real output with new files staged.
-Merge into the integration branch, run the verification lane, update the
-plan's Status, then start the next ready item.
+**`done`:** don't read the diff yourself. Start a lander for the item
+(or for the repo's wave PR once its items are done): a `plan-executor`
+run on the faster model unless the plan names another, briefed per "Lander mode" in
+`.claude/agents/plan-executor.md` with the executor's report, the
+original write set and "Done when", the integration branch and PR, the
+verification lane's commands, and the standing approvals. At most one
+lander per repo at a time. Then start the next ready item.
 
-**`escalate`:** research before deciding:
+**A lander's report:** `done` means landed: PR, merge commit (where it may
+merge), CI, review rounds with dispositions, the lane tail and NOTES.
+Record it in the plan's Status and start whatever it unblocks. A red lane
+is the lander's to handle: it reverts the merge and resumes the owning
+executor with the failing output. Treat what it escalates like an
+executor's escalation below, with its evidence in hand.
+
+**`escalate`** (executor or lander): research before deciding:
 
 1. context7 for the library or framework involved;
 2. WebSearch/WebFetch for the exact error text, the tool's issue tracker,
@@ -73,27 +89,35 @@ Then:
 
 ## Serialized lanes
 
-Run these yourself, one at a time, never in parallel executors:
+Landers run these, one at a time, never in parallel with each other where
+they share resources; you sequence them through the queue:
 
-- **Verification:** after each merge, the repo's full suite including
-  integration and e2e (they share the devcontainer's services and ports).
-  On red: revert that merge on the integration branch, send the failing
-  output to the owning executor as an escalation-style message, and keep
-  the queue moving.
-- **Releases**, in the plan's dependency order, each behind its gate.
-- **Measurements**, only in quiet windows with no executors running.
+- **Verification:** after each merge into a repo's integration branch,
+  the repo's full suite including integration and e2e. Only one lander at
+  a time runs suites that share the devcontainer's services or fixed
+  ports, across all repos. On red the lander reverts that merge, sends the
+  failing output to the owning executor and keeps going; it escalates
+  only when the executor can't fix it inside its write set.
+- **Releases**, in the plan's dependency order, by a lander, only where
+  the standing approvals allow; every other release is a gate you raise.
+- **Measurements**, only in quiet windows with no other agents running.
 
 ## Gates and the user
 
+- Landers never merge a PR the user merges and never act outside the
+  standing approvals; they escalate and you raise the gate.
 - Batch same-kind gates in a wave (PR merges, releases) into one request.
   Batch non-blocking questions too.
-- Show evidence with every gate: check output, CI links, release runs.
-- After each merged batch, add a dated progress bullet to the plan's
+- Show evidence with every gate: it comes from lander reports (check and
+  lane output, CI links, review dispositions, release runs). If a report
+  lacks it, send the lander back for it rather than checking yourself.
+- After each landed batch, add a dated progress bullet to the plan's
   Status, so a fresh session can resume from the plan alone.
 
 ## Close-out
 
-Final verification lane over every repo the plan touched; fold what's
+A final verification lane over every repo the plan touched, run by a
+lander; fold what's
 worth keeping into ADRs and docs; ask for the final gate; then delete the
 plan (and its runbook) per `docs/plans/README.md`, and give the user a
 commit message.

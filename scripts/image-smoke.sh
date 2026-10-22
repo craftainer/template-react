@@ -11,9 +11,13 @@
 #   RELEASE_VERSION      if that tar is missing (the image name may differ
 #                        when the repository name can't be derived), the one
 #                        dist/*-$RELEASE_VERSION-<arch>.tar is used instead
-#   RELEASE_ARCH         arch to test; default: the host's. Unset and no tar
-#                        for that arch: print a notice and exit 0 (the
-#                        per-arch run in the build job already covered it)
+#   RELEASE_ARCH         arch to test; default: the host's. A missing tar
+#                        for that arch is an error, so a run never passes
+#                        without having tested an image. The one exception:
+#                        RELEASE_ARCH unset and the host's arch not in
+#                        ARCHES, i.e. this instance doesn't build it
+#   ARCHES               space-separated arches the instance builds (the
+#                        Makefile sets it); only used for that exception
 #   IMAGE_SMOKE_PORT     container port (default 8000)
 #   IMAGE_SMOKE_PATH     URL path (default /health/live)
 #   IMAGE_SMOKE_RUN_ARGS extra `docker run` words, whitespace-separated and
@@ -42,8 +46,8 @@ if [[ ! -f "$tar" && -n "${RELEASE_VERSION:-}" ]]; then
     fi
 fi
 if [[ ! -f "$tar" ]]; then
-    if [[ -z "${RELEASE_ARCH:-}" ]]; then
-        echo "image-smoke: no $arch image in $(dirname "$prefix") for this host; the per-arch smoke already ran in the build job. Skipping."
+    if [[ -z "${RELEASE_ARCH:-}" && -n "${ARCHES:-}" && " ${ARCHES} " != *" $host_arch "* ]]; then
+        echo "image-smoke: this instance doesn't build $host_arch (ARCHES=$ARCHES), so there is no image to run on this host; each arch is smoke-tested by its own build leg. Skipping."
         exit 0
     fi
     echo "image-smoke: $tar not found; run 'make build' first." >&2
@@ -92,8 +96,17 @@ SKOPEO_DIST_DIR="$tar_dir" bash "$(dirname "${BASH_SOURCE[0]}")/skopeo.sh" -- \
     "docker-archive:/dist/$(basename "$work")/image.tar:$image"
 docker load -i "$work/image.tar"
 
-cid="$(docker run -d -p "127.0.0.1::${port}" "${run_args[@]}" "$image")"
-mapped="$(docker port "$cid" "${port}/tcp" | head -n1 | sed 's/.*://')"
+# ${run_args[@]+...}: an empty array is unbound under `set -u` on bash < 4.4.
+cid="$(docker run -d -p "127.0.0.1::${port}" ${run_args[@]+"${run_args[@]}"} "$image")"
+# No `| head -n1`: head closing the pipe early can SIGPIPE `docker port`,
+# which fails the pipeline under pipefail. Take the first line in the shell.
+ports="$(docker port "$cid" "${port}/tcp")"
+mapped="${ports%%$'\n'*}"
+mapped="${mapped##*:}"
+if [[ -z "$mapped" ]]; then
+    echo "image-smoke: container publishes no host port for ${port}/tcp" >&2
+    exit 1
+fi
 url="http://127.0.0.1:${mapped}${path}"
 
 echo "image-smoke: waiting up to ${timeout}s for $url"

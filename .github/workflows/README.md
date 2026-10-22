@@ -6,15 +6,6 @@
   [`devcontainers/ci`](https://github.com/devcontainers/ci)), under a
   per-run `COMPOSE_PROJECT_NAME` that a final step tears down. Runs as a
   two-leg `amd64`/`arm64` matrix (see "Architecture matrix" below).
-- `smoke.yml` — builds the `runner` stage of the root `Dockerfile` via
-  the root `compose.yml`, starts it against the real Postgres, RustFS,
-  Redis, and Keycloak backing services, and confirms `/health/live` and
-  `/health/ready` both return 200 -- on push, on pull requests, and on
-  demand. Runs as the same two-leg `amd64`/`arm64` matrix as
-  `checks.yml` — this is the check that would actually catch an
-  arch-specific runtime break (e.g. a C-extension dependency missing an
-  arm64 wheel), since `checks.yml`'s test run uses `MODE=mock`
-  in-process fakes for some paths rather than the built image.
 - `release.yml` — manually triggered. Takes a release channel
   (`alpha`/`beta`/`rc`/`full`) and a SemVer 2 bump
   (`major`/`minor`/`patch`/`none`), computes the next tag via
@@ -48,7 +39,7 @@ e.g. to point at self-hosted runners.
 
 ## Architecture matrix
 
-`checks.yml`, `smoke.yml`, and `release.yml`'s `build` job each run as a
+`checks.yml` and `release.yml`'s `build` job each run as a
 two-leg matrix over `amd64`/`arm64`, both legs building/testing natively
 — `ubuntu-24.04-arm` is a real (non-emulated) GitHub-hosted Linux arm64
 runner, free on this public repo and billed as ordinary Actions minutes

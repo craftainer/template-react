@@ -93,6 +93,7 @@ replace:
   - scripts/check-dockerfile-versions.sh
   - scripts/image-scan.sh
   - scripts/skopeo.sh
+  - scripts/test-image-scripts.sh
 
   # template-react's own layer on top of docker's: the runtime image (an
   # nginx-served SPA) and its assets, the dev-service compose additions, the

@@ -30,14 +30,19 @@ this directory).
   the main session as orchestrator (see `../CLAUDE.md`, "Execute
   multi-item work as an orchestrator"). It holds the executor's side of
   the protocol: what a brief contains, the write-set and no-push rules,
-  the escalation triggers, and the report format.
+  the escalation triggers, and the report format. The same agent, briefed
+  to land a finished item, is a lander (its "Lander mode" section):
+  diff check, merge, verification lane, PR, `/code-review`, CI and,
+  within the plan's standing approvals, merge and release.
 - `skills/` — project skills Claude loads when a request matches their
   `description` (or that you invoke as `/<name>`):
   - `plan-creation` — writing a `docs/plans/` plan and, when the user
     has setup to do first, its pre-flight runbook.
   - `plan-execution` — the orchestrator's side of executing a plan:
-    the rolling queue of `plan-executor` subagents, researched answers
-    to escalations, serialized lanes, gates and close-out.
+    the rolling queue of executors and landers, researched answers to
+    escalations, serialized lanes, gates and close-out. The main session
+    decides and raises gates; landers do the reviewing, merging,
+    verifying and releasing.
   - `owasp-scan` — a parallel OWASP Top Ten scan of `src/`.
   - `frontend-design` — how to design UI here: the "Field Ledger"
     direction and its anti-defaults, proposing 2-3 distinct options for

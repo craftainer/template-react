@@ -143,14 +143,16 @@ repos:
         name: check-dockerfile-versions (ARG defaults match across Dockerfiles)
         entry: bash scripts/check-dockerfile-versions.sh DEBIAN_VERSION NODE_VERSION
         language: system
-        files: ^(\.devcontainer/)?Dockerfile$
+        # Also when the check itself, or this entry (the ARG list), changes.
+        files: ^((\.devcontainer/)?Dockerfile|scripts/check-dockerfile-versions\.sh|\.pre-commit-config\.yaml)$
         pass_filenames: false
         stages: [pre-commit, manual]
 
-      # Vulnerability scan of the built image tar(s) in dist/ with Trivy
-      # (ADR 0001; the Trivy pin and why are in scripts/image-scan.sh).
-      # Manual stage only: it needs `make build` to have produced dist/*.tar
-      # and network for the vulnerability DB. Skips cleanly with no tar.
+      # Vulnerability scan of the built image tar for the current
+      # RELEASE_VERSION/RELEASE_ARCH in dist/ with Trivy (ADR 0001; the Trivy
+      # pin and why are in scripts/image-scan.sh). Manual stage only: it needs
+      # `make build` to have produced the tar and network for the
+      # vulnerability DB. Skips cleanly with no tar.
       - id: image-scan
         name: image-scan (Trivy, HIGH/CRITICAL with a fix)
         entry: bash scripts/image-scan.sh
@@ -158,3 +160,14 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [manual]
+
+      # Offline tests of the scripts and Makefile logic above (repo
+      # derivation, version-check edge cases, smoke-test failure on a missing
+      # tar); needs no Docker.
+      - id: image-scripts-test
+        name: image-scripts-test (Makefile and scripts/ behaviour)
+        entry: bash scripts/test-image-scripts.sh
+        language: system
+        files: ^(Makefile|scripts/(check-dockerfile-versions|image-scan|image-smoke|skopeo|test-image-scripts)\.sh)$
+        pass_filenames: false
+        stages: [pre-commit, manual]

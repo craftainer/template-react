@@ -11,18 +11,22 @@
 - `develop.d/`, `post-create.d/`, `runner-setup.d/` — instance hook
   directories, empty apart from their own `README.md`; see
   `docs/TEMPLATE.md`'s "Instance extension points".
-- `runner-setup.sh` — the top-level `Dockerfile`'s `runner` stage setup:
-  group-0 runtime user for arbitrary-UID platforms (run before copying
+- `runner-setup.sh` — optional; the top-level `Dockerfile`'s `runner` stage
+  setup: group-0 runtime user for arbitrary-UID platforms (run before copying
   app code, which is then copied read-only), then every
-  `runner-setup.d/*.sh`.
+  `runner-setup.d/*.sh`. An instance whose runner image doesn't call it
+  (an nginx runner, say) ignores it and `runner-setup.d/`.
 - `image-scan.sh` — the manual-stage `image-scan` hook: Trivy over the
-  tars in `dist/`.
+  tar for the current `RELEASE_VERSION`/arch in `dist/`.
+- `test-image-scripts.sh` — the `image-scripts-test` hook: offline tests of
+  the Makefile's repo derivation and these scripts.
 - `image-smoke.sh` — `make image-smoke` (a `release-check` prerequisite):
   converts the arch's image in the release OCI tar from `dist/` to a
   docker-archive with the pinned skopeo (`docker load` can't read a buildx
   OCI tar on the classic image store), loads and runs it, and polls
-  `IMAGE_SMOKE_PATH` until 2xx. Needs `SKOPEO_IMAGE`, which the Makefile
-  exports; usage in the script's header.
+  `IMAGE_SMOKE_PATH` until 2xx. Fails when there is no tar for the arch under
+  test. Needs `SKOPEO_IMAGE`, which the Makefile exports; usage in the
+  script's header.
 - `skopeo.sh` — runs the pinned skopeo image as the caller's user with
   `dist/` mounted at `/dist`; used by `make publish` and `image-smoke.sh`.
 - `check-dockerfile-versions.sh ARG...` — fails when a named `ARG` default

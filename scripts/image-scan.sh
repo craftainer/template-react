@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Scans every image tar `make build` left in dist/ for HIGH/CRITICAL
-# vulnerabilities that have a fix, with Trivy. Skips when dist/ has no tar.
+# Scans the image tar `make build` left in dist/ for the current release
+# version and arch for HIGH/CRITICAL vulnerabilities that have a fix, with
+# Trivy. Skips when there is none. Which tar: RELEASE_ARCH (default: the
+# host's) selects the arch; RELEASE_VERSION selects dist/*-<version>-<arch>.tar,
+# and when unset the newest dist/*-<arch>.tar is used, so tars of older
+# versions or other arches left in dist/ are never scanned.
 # Run by the manual-stage `image-scan` pre-commit hook; needs Docker and
 # network access (the vulnerability DB is cached in the trivy-cache volume).
 #
@@ -17,10 +21,25 @@ set -euo pipefail
 
 trivy=aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222
 
+case "$(uname -m)" in
+    aarch64 | arm64) host_arch=arm64 ;;
+    *) host_arch=amd64 ;;
+esac
+arch="${RELEASE_ARCH:-$host_arch}"
+
 shopt -s nullglob
-tars=(dist/*.tar)
+tars=()
+if [[ -n "${RELEASE_VERSION:-}" ]]; then
+    tars=(dist/*-"$RELEASE_VERSION-$arch".tar)
+else
+    newest=""
+    for t in dist/*-"$arch".tar; do
+        if [[ -z "$newest" || "$t" -nt "$newest" ]]; then newest="$t"; fi
+    done
+    if [[ -n "$newest" ]]; then tars=("$newest"); fi
+fi
 if [[ ${#tars[@]} -eq 0 ]]; then
-    echo "image-scan: no image tar in dist/, skipping"
+    echo "image-scan: no linux/$arch image tar in dist/${RELEASE_VERSION:+ for $RELEASE_VERSION}, skipping"
     exit 0
 fi
 

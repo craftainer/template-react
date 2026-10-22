@@ -20,7 +20,9 @@ done
 [[ $# -gt 0 ]] || { echo "usage: $0 [DOCKER_RUN_ARGS...] -- SKOPEO_ARGS..." >&2; exit 2; }
 shift
 
+# `${arr[@]+"${arr[@]}"}` below: an empty array is an unbound variable under
+# `set -u` on bash older than 4.4 (macOS ships 3.2).
 dist="$(cd "${SKOPEO_DIST_DIR:-dist}" && pwd)"
 
 exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -v "$dist:/dist" "${docker_args[@]}" "$SKOPEO_IMAGE" "$@"
+    -v "$dist:/dist" ${docker_args[@]+"${docker_args[@]}"} "$SKOPEO_IMAGE" "$@"

@@ -189,11 +189,12 @@ these files over base:
 | `Makefile` | `replace` | the image implementation of the release contract above |
 | `image.mk` | `ignore` | the instance's settings for the Makefile, every variable commented |
 | `Dockerfile` | `ignore` | skeleton to replace: `builder` and `runner` stages, `ARG DEBIAN_VERSION`, `ARG APP_UID`, SSL ARGs, `APP_VERSION`/`APP_COMMIT` |
-| `.dockerignore` | `merge` | baseline build-context excludes; the instance appends its own |
+| `.dockerignore` | `merge` | baseline build-context excludes for the runtime image (including `node_modules`, `coverage`, `target` and `dist`); the instance appends its own |
 | `scripts/image-smoke.sh` | `replace` | loads the image tar from `dist/`, runs it and polls a URL |
-| `scripts/runner-setup.sh` | `replace` | creates the group-0 runtime user and its writable directories for the `runner` stage |
+| `scripts/runner-setup.sh` | `replace` | optional: creates the group-0 runtime user and its writable directories for the `runner` stage |
 | `scripts/image-scan.sh` | `replace` | the Trivy scan the `image-scan` hook runs |
-| `scripts/runner-setup.d/*.sh` | `ignore` | the instance's runner-stage hooks |
+| `scripts/test-image-scripts.sh` | `replace` | offline tests of the Makefile and `scripts/` logic, run by the `image-scripts-test` hook |
+| `scripts/runner-setup.d/*.sh` | `ignore` | optional: the instance's runner-stage hooks |
 | `scripts/check-dockerfile-versions.sh` | `replace` | the version-ARG consistency check |
 
 ### `image.mk` variables
@@ -217,20 +218,34 @@ defaults) and every variable is `?=`, so set them in `image.mk`:
 digest) are pinned in the Makefile for Renovate; don't override them. The
 image name comes from `GITHUB_REPOSITORY` (the repository name), never a
 hardcoded one. Inside the devcontainer, where `release-check` runs and
-`GITHUB_REPOSITORY` is unset, it is derived from the `origin` remote (ssh
-or https form), and from the directory name as a last resort;
+`GITHUB_REPOSITORY` is unset, it is derived from the `origin` remote
+(`ssh://[user@]host[:PORT]/owner/repo`, scp-like or https form; tested by
+`scripts/test-image-scripts.sh`). If git fails (no `origin`, "dubious
+ownership"), there is no guess: `build`, `sbom`, `release-assets`, `publish`
+and `finalize` print git's error to stderr and fail, and
+`GITHUB_REPOSITORY=owner/repo` overrides;
 `image-smoke` also accepts the single `dist/*-<version>-<arch>.tar` when
 the expected name is absent. `OCI_IMAGE_NAME` overrides the registry path.
 `build`, `sbom`, `release-assets` and `publish` need `RELEASE_ARCH` and
 fail through the `check-arch` prerequisite when it is empty;
 `release-arches`, `release-check`/`image-smoke` (host arch when unset) and
 `finalize` don't. `publish` copies the tar from `dist/` that was SBOM'd
-and smoke-tested to the registry with skopeo (`oci-archive:` to
-`docker://`, Apache-2.0, pinned image; `crane push` only reads
+and smoke-tested to the registry with skopeo (`copy --all`, `oci-archive:`
+to `docker://`, Apache-2.0, pinned image; `crane push` only reads
 docker-format tarballs, and `build` writes an OCI layout), so the pushed
-digest is the tested one. It records the digest in
-`dist/<name>-<version>-<arch>.digest`, and `finalize` builds the manifest
-list from those digests. Registry login uses a throwaway authfile fed the
+digest is the tested one. `--all` pushes the tar's whole index as
+`<version>-<arch>`: the image for `RELEASE_ARCH` plus the buildx attestation
+manifests (provenance, SBOM) when the build wrote any. Without it skopeo
+picks one image by the *host's* platform, which can fail or pick the wrong
+image when `RELEASE_ARCH` isn't native, and it drops the attestations. It
+records that index's digest in `dist/<name>-<version>-<arch>.digest` (which
+`finalize` deletes after use, so release.yml never attaches digest files to
+the GitHub release), and
+`finalize` builds the manifest list from those digests (`imagetools create`
+merges the per-arch indexes, so the attestations carry over). `finalize`
+logs in with a throwaway `DOCKER_CONFIG`, into which it links the user's
+`cli-plugins` directory (Docker looks up plugins in
+`$DOCKER_CONFIG/cli-plugins`), so a user-installed buildx is still found. Registry login uses a throwaway authfile fed the
 password on stdin. The labels are listed in `.github/workflows/README.md`'s "Image
 labels". Registry auth stays the opt-in `OCI_REGISTRY*` secrets contract.
 
@@ -254,25 +269,38 @@ image in the OCI-layout tar with the pinned skopeo (through
 `scripts/skopeo.sh`, which `publish` uses too; `--override-arch`, to a
 docker-archive under `dist/`) and `docker load`s that, because
 `docker load` can't read a buildx OCI tar on the classic image store,
-with or without attestations. It reads `IMAGE_TAR_PREFIX` and
-`SKOPEO_IMAGE` (set by the Makefile), the arch
-from `RELEASE_ARCH` (else the host's; if `RELEASE_ARCH` is unset and
-there is no tar for the host arch, it prints a notice and exits 0, since
-the per-arch run already covered that arch), maps a random host port to
-`IMAGE_SMOKE_PORT`, prints the container logs on failure and always
+with or without attestations. It reads `IMAGE_TAR_PREFIX`,
+`SKOPEO_IMAGE` and `ARCHES` (set by the Makefile), the arch from
+`RELEASE_ARCH` (else the host's). A missing tar for that arch fails, so a
+run never passes without having tested an image; the one exception is
+`RELEASE_ARCH` unset with a host arch outside `ARCHES` (the instance
+doesn't build it, and its own build leg tested each arch it does). It maps
+a random host port to `IMAGE_SMOKE_PORT`, prints the container logs on failure and always
 removes the container and the private `image-smoke-*` tag it created
 (never an image that existed before).
 
 ### Runner setup hook
 
+Optional. It serves a runtime image that needs the group-0 user and
+writable directories; an instance whose `runner` stage doesn't call it
+(e.g. `template-react`'s nginx runner, whose base image already has its own
+non-root user) simply never runs it. Both files stay in the tree, since
+they are template-owned, and nothing checks or requires them.
+
 `scripts/runner-setup.sh` creates the user (UID `APP_UID`, group 0), makes
 its home and `/app/data` group-writable, and leaves `/app` root-owned, so
 the image also runs under an arbitrary UID (OpenShift's restricted SCC).
 Run it **before** copying app code, then copy the code after it with
-`COPY --chown=<uid>:0 --chmod=u=rX,g=rX,o=` (0550 directories, 0440
-files): only data and cache directories are writable, the runtime user
+`COPY --chown=<uid>:0` of content whose modes are already 0550
+directories and 0440 files: only data and cache directories are writable, the runtime user
 can't modify what it runs, and no recursive `chgrp`/`chmod` duplicates
-the files into another layer. It then runs every
+the files into another layer. Set those modes numerically, per kind
+(`find . -type d -exec chmod 0550 {} +`, `find . -type f -exec chmod 0440
+{} +`, e.g. in the builder stage, or `COPY --chmod=0550`/`0440` for sources
+that are all one kind), not with the symbolic `--chmod=u=rX,g=rX,o=`: that
+form left files unreadable to the app user on GitHub's stock-runner Docker
+(template-fastapi's CI smoke, even with `# syntax=docker/dockerfile:1.28`),
+though it worked on a current local daemon. It then runs every
 `scripts/runner-setup.d/*.sh` in glob order as `bash NN-name.sh APP_UID`,
 still as root and in the same `RUN` layer. The instance puts extra
 packages and writable directories there instead of editing the script.
@@ -281,9 +309,12 @@ packages and writable directories there instead of editing the script.
 
 The `check-dockerfile-versions` hook runs
 `scripts/check-dockerfile-versions.sh DEBIAN_VERSION` whenever either
-Dockerfile changes: each named ARG must have the same default in
+Dockerfile, the script or `.pre-commit-config.yaml` (where the ARG list
+lives) changes: each named ARG must have the same default in
 `.devcontainer/Dockerfile` and `Dockerfile` (the runtime must match the
-toolchain the devcontainer tests against). An instance appends the ARG
+toolchain the devcontainer tests against). An ARG may be declared several
+times in one file (a bare `ARG NAME` re-declares it inside a stage); bare
+ones are ignored and every default given must agree. An instance appends the ARG
 names it keeps in both files (e.g. `RUST_VERSION`) to the hook's `entry:`
 in its `.pre-commit-config.yaml`; ARGs not listed aren't checked.
 
@@ -295,10 +326,17 @@ in its `.pre-commit-config.yaml`; ARGs not listed aren't checked.
   install an unpinned apt package adds a per-line
   `# hadolint ignore=DL3008` with a reason (as the skeleton `Dockerfile`
   does: Debian drops superseded versions, so pins break rebuilds).
+- `image-scripts-test` runs `scripts/test-image-scripts.sh`: offline tests
+  of the Makefile's repo derivation, the version check, the smoke test's
+  failure on a missing tar and `skopeo.sh`'s argument handling. It needs no
+  Docker.
 - `image-scan` runs only at the `manual` stage, because it needs
-  `dist/*.tar` from `make build` and network access for the vulnerability
-  database. With no tar it skips. Otherwise `scripts/image-scan.sh` runs a
-  pinned Trivy image on each tar and fails on HIGH or CRITICAL
+  the tar from `make build` and network access for the vulnerability
+  database. It scans only `dist/*-<RELEASE_VERSION>-<arch>.tar` (arch from
+  `RELEASE_ARCH`, else the host's; without `RELEASE_VERSION`, the newest
+  `dist/*-<arch>.tar`), never stale tars of other versions. With no such tar
+  it skips. Otherwise `scripts/image-scan.sh` runs a
+  pinned Trivy image on that tar and fails on HIGH or CRITICAL
   findings that have a fix (`--severity HIGH,CRITICAL --ignore-unfixed
   --exit-code 1`). Trivy can't read the OCI-layout tar `make build`
   writes, so the script unpacks it and scans the directory, selecting

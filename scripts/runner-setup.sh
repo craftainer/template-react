@@ -6,11 +6,17 @@
 # Run it BEFORE copying app content. It creates the user and group 0
 # ownership only where the app writes at runtime: the home directory and
 # /app/data (group read/write/execute). /app itself stays root-owned and not
-# writable. Then COPY app code with `--chown=<uid>:0 --chmod=...` as
-# read-only (e.g. `--chmod=u=rX,g=rX,o=`: 0550 directories, 0440 files), so it
-# needs no recursive chgrp/chmod (which would copy every file into a new
+# writable. Then COPY app code with `--chown=<uid>:0` as
+# read-only: 0550 directories, 0440 files, set with numeric modes per kind
+# (`find -type d/-type f ... chmod`, or `--chmod=0550`/`0440` per source). Not
+# the symbolic `--chmod=u=rX,g=rX,o=`: it left files unreadable on GitHub's
+# stock-runner Docker even with dockerfile:1.28. Either way
+# it needs no recursive chgrp/chmod (which would copy every file into a new
 # layer) and the runtime user can't modify it. Other writable directories
 # (caches, upload dirs) are created by runner-setup.d hooks.
+#
+# Optional: an instance whose runner image needs no such user (an nginx runner
+# with its own non-root user) never calls this script.
 #
 # Usage: runner-setup.sh APP_UID
 #

@@ -1,5 +1,8 @@
 # Build context excludes for the runtime image (top-level Dockerfile). The
 # devcontainer image has its own: .devcontainer/Dockerfile.dockerignore.
+**/node_modules
+coverage
+target
 .git
 .github
 .devcontainer
