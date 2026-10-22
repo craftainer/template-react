@@ -41,6 +41,21 @@ describe.each(Object.entries(palette))(
       ["info on paper", p.info.main, p.background.paper],
       ["success on paper", p.success.main, p.background.paper],
       ["success on default", p.success.main, p.background.default],
+      ["error on default", p.error.main, p.background.default],
+      ["warning on default", p.warning.main, p.background.default],
+      ["info on default", p.info.main, p.background.default],
+      ["error contrastText on error", p.error.contrastText, p.error.main],
+      [
+        "warning contrastText on warning",
+        p.warning.contrastText,
+        p.warning.main,
+      ],
+      ["info contrastText on info", p.info.contrastText, p.info.main],
+      [
+        "success contrastText on success",
+        p.success.contrastText,
+        p.success.main,
+      ],
     ];
     it.each(pairs)("%s >= 4.5:1", (_label, fg, bg) => {
       expect(ratio(fg, bg)).toBeGreaterThanOrEqual(4.5);
