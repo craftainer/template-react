@@ -64,9 +64,9 @@ try {
       await run("localStorage.setItem('mui-mode', arguments[0])", [mode]);
       await call("POST", s("/url"), { url });
       await new Promise((r) => setTimeout(r, 1500));
-      // MUI sets data-light / data-dark on <html> for the resolved scheme.
+      // With colorSchemeSelector "data", MUI sets data-mui-color-scheme on <html>.
       const scheme = await run(
-        "return document.documentElement.hasAttribute('data-dark') ? 'dark' : document.documentElement.hasAttribute('data-light') ? 'light' : null",
+        "return document.documentElement.getAttribute('data-mui-color-scheme')",
       );
       const png = await call("GET", s("/screenshot"));
       const file = `${outDir}/${name}-${vp.label}-${mode}.png`;
