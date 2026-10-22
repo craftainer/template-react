@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Design-token guard (ADR 0004): rejects hex/rgb/hsl color literals and raw
 # `px` values in src/**/*.{ts,tsx,css} outside src/theme/, so every color and
-# size comes from the theme (src/theme/tokens.ts).
+# size comes from the theme (src/theme/tokens.ts). Test files (*.test.ts,
+# *.test.tsx) are skipped because they may assert computed colors; stories
+# (*.stories.tsx) stay covered since they model token usage.
 #
 # usage: check-design-tokens.sh [SRC_DIR]     (default: src)
 #        check-design-tokens.sh --self-test   (runs against built-in fixtures)
@@ -42,7 +44,8 @@ scan() {
       fi
     done <"$file"
   done < <(find "$root" -path "$root/theme" -prune -o -type f \
-    \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' \) -print0 | sort -z)
+    \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' \) \
+    ! -name '*.test.ts' ! -name '*.test.tsx' -print0 | sort -z)
   return "$status"
 }
 
@@ -54,6 +57,9 @@ self_test() {
   echo 'export const c = "#B3361B"; export const p = "4px";' >"$d/theme/tokens.ts"
   printf 'const w = "100%%"; const id = "#root"; const v = "var(--x)";\n' >"$d/ok/clean.tsx"
   printf 'const w = "1px"; // design-tokens: allow hairline for a third-party widget\n' >"$d/ok/marked.tsx"
+  echo 'const c = "#abcdef"; const p = "12px";' >"$d/ok/color.test.tsx"
+  echo 'const c = "#abcdef"; const p = "12px";' >"$d/ok/color.test.ts"
+  echo 'const c = "#abcdef";' >"$d/bad/color.stories.tsx"
   echo 'a { color: #fff; }' >"$d/bad/hex.css"
   echo 'const c = "#abcdef";' >"$d/bad/hex6.ts"
   echo 'const c = "rgba(0, 0, 0, 0.5)";' >"$d/bad/rgb.ts"
@@ -65,7 +71,7 @@ self_test() {
 
   scan "$d/ok" >/dev/null 2>&1 || { echo "self-test: clean fixtures were rejected" >&2; fail=1; }
   local f
-  for f in hex.css hex6.ts rgb.ts hsl.ts px.tsx negpx.tsx px.css noreason.ts; do
+  for f in hex.css hex6.ts rgb.ts hsl.ts px.tsx negpx.tsx px.css noreason.ts color.stories.tsx; do
     rm -rf "$d/one" && mkdir -p "$d/one" && cp "$d/bad/$f" "$d/one/"
     if scan "$d/one" >/dev/null 2>&1; then
       echo "self-test: $f was not rejected" >&2

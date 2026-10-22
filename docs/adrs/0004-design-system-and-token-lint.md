@@ -37,7 +37,9 @@ literals and raw `px` values in `src/**/*.{ts,tsx,css}` outside
 inline `design-tokens: allow <reason>` marker; a marker without a reason
 fails. The hook runs the script's `--self-test` (fixtures for every
 violation kind, the marker and the `src/theme/` exemption) before scanning,
-so the checker cannot silently stop catching things.
+so the checker cannot silently stop catching things. Test files
+(`*.test.ts`, `*.test.tsx`) are skipped because they may assert computed
+colors; stories (`*.stories.tsx`) stay covered since they model token usage.
 
 **Contrast** is asserted in `src/theme/contrast.test.ts` (WCAG 2.2 AA, 4.5:1
 for text); the ratios are in `docs/design/README.md`.
