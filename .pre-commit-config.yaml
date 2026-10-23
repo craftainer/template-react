@@ -112,6 +112,14 @@ repos:
         always_run: true
         stages: [pre-commit, manual]
 
+      - id: scripts-tests
+        name: scripts-tests (.github/scripts unit tests, executable bits)
+        entry: env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .github/scripts -p "test_*.py"
+        language: system
+        files: ^(\.github/(scripts|workflows)/|\.claude/hooks/)
+        pass_filenames: false
+        stages: [pre-commit, manual]
+
       - id: devcontainer-lock
         name: devcontainer-lock (lockfile matches devcontainer.json features)
         entry: python3 .github/scripts/check_devcontainer_lock.py

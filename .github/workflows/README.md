@@ -14,7 +14,9 @@
   Makefile contract"): `make release-arches` picks the arch matrix;
   `build`/`sbom`/`release-assets`/`publish` run once per arch, natively
   (no QEMU — see "Architecture matrix" below), each leg uploading its
-  `dist/` as `release-assets-<arch>`; then one job downloads them all,
+  `dist/` as `release-assets-<arch>`; `publish-packages` then runs once,
+  but only for an instance that sets `PYPI_PUBLISH`, `NPM_PUBLISH` or
+  `CARGO_PUBLISH`; then one job downloads the `dist/`s,
   runs `make release-check` inside the devcontainer and `make finalize`
   on the host, and creates a GitHub release with everything in `dist/`.
 - `visual.yml` — template-react only: builds Storybook and runs the
@@ -264,15 +266,18 @@ cleanly when the registry isn't configured.
   labels for each arch leg, defaulting to `ubuntu-24.04` /
   `ubuntu-24.04-arm`.
 - `PYPI_PUBLISH` (variable, optional) — `testpypi` or `pypi`; selects the
-  index `make publish` uploads to via trusted publishing. Unset skips it.
+  index `make publish-packages` uploads to via trusted publishing. Unset
+  skips it.
 - `NPM_PUBLISH` / `CARGO_PUBLISH` (variables, optional) — non-empty makes
-  `make publish` push to npm / crates.io; unset skips it. Passed to
-  `build` and, like `PYPI_PUBLISH`, forwarded to `release-check` so it
-  can install what publish uploaded.
+  `make publish-packages` push to npm / crates.io; unset skips it. Setting
+  any of the three is what creates the `publish-packages` job at all.
+  They are passed to that job and, like `PYPI_PUBLISH`, forwarded to
+  `release-check` so it can install what was published.
 - `NPM_TOKEN` / `CARGO_REGISTRY_TOKEN` (secrets, optional) — bootstrap
   tokens for the first release of a package, before trusted publishing
-  is configured. Exposed only on the `make publish` step's `env:`, never
-  job-wide or to any other step. An unset secret arrives as an empty
+  is configured. Exposed only on the `make publish-packages` step's
+  `env:` in the `publish-packages` job, never job-wide or to any other
+  step or job. An unset secret arrives as an empty
   string, so the Makefile must treat empty as absent. `NPM_TOKEN` is
   deliberately not mapped to `NODE_AUTH_TOKEN`: npm's OIDC trusted
   publishing breaks when that variable is set, even to an empty string,
@@ -283,11 +288,18 @@ cleanly when the registry isn't configured.
 - Give `release.yml` and `template-sync.yml` `contents: write` and
   nothing broader (`template-sync.yml` also needs `pull-requests:
   write`, for nothing else); leave `checks.yml` at `contents: read`.
-- Keep `id-token: write` on `release.yml`'s `build` job only (the one
-  running `make publish`): PyPI, npm and crates.io trusted publishing
-  via GitHub OIDC. It is unused by repos that publish to none of them.
-- Keep `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` on the `make publish`
-  step's `env:` only.
+- Keep `id-token: write` on `release.yml`'s `publish-packages` job only
+  (PyPI, npm and crates.io trusted publishing via GitHub OIDC). GitHub
+  permissions are per job, not per step, and that job's `if:` on the
+  `*_PUBLISH` variables means an image-only instance never starts it, so
+  it never requests an OIDC token. `build` (per arch) has no `id-token`.
+- Keep `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` on the `make
+  publish-packages` step's `env:` only.
+- Pass `GITHUB_TOKEN` to a `devcontainers/ci` or `build-push-action` step
+  that builds the devcontainer image (step `env:`, not the action's
+  `env:` input), so `scripts/develop.sh`'s downloads are authenticated:
+  `compose.yml` hands it to the build as the optional `github_token`
+  secret, never a build arg.
 
 ## Don't
 

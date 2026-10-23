@@ -14,6 +14,12 @@ services:
       context: ..
       dockerfile: .devcontainer/Dockerfile
       target: develop
+      # Optional: authenticates the image build's GitHub downloads (see
+      # the Dockerfile and scripts/develop.sh). CI exports GITHUB_TOKEN;
+      # when it is unset the secret is empty and downloads are
+      # unauthenticated.
+      secrets:
+        - github_token
     volumes:
       - ..:/workspace:cached
       # No volume for a language-runtime environment (venv, node_modules,
@@ -40,3 +46,7 @@ volumes:
   # Persists the GitHub CLI's login (`gh auth login`) across rebuilds, for
   # the same reason.
   gh-config:
+
+secrets:
+  github_token:
+    environment: GITHUB_TOKEN

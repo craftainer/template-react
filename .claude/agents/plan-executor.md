@@ -105,7 +105,8 @@ is never yours to merge.
    with the failing output and the revert done; the orchestrator briefs a
    fresh executor. Escalate also if the fix can't be made inside the
    write set.
-4. Push and open or update the wave PR.
+4. Push the integration branch (always the lander's job, not the
+   orchestrator's) and open or update the wave PR.
 5. Run `/code-review` on the PR, naming the PR or the `origin/main...HEAD`
    diff explicitly, never the shell's cwd. Fix findings inside the write
    set and re-run the lane after each round.

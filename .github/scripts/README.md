@@ -19,6 +19,10 @@
   applies the `replace`/`merge` tiers between two template checkouts and
   the instance working tree, and reads/writes
   `../template-sync-state.json`.
+- `test_template_sync.py` — stdlib `unittest` tests for
+  `template_sync.py`'s replace tier (including the executable bit) and a
+  check that every script a workflow runs directly is executable; backs
+  the `scripts-tests` prek hook.
 - `run_claude.sh` — invokes `claude -p` for one issue-moderation stage
   inside the devcontainer; shared by all four Claude-invoking
   `../workflows/moderate-*.yml` jobs. See `../workflows/README.md`'s
