@@ -225,6 +225,20 @@ these files over base:
 | `scripts/runner-setup.d/*.sh` | `ignore` | optional: the instance's runner-stage hooks |
 | `scripts/check-dockerfile-versions.sh` | `replace` | the version-ARG consistency check |
 
+### Package targets
+
+The image Makefile ships `publish-packages` and `verify-published` so an
+image instance satisfies the contract above (base's
+`MakefileDefinesPublishPackagesTest` requires a `publish-packages:` rule;
+without one a release with a `*_PUBLISH` variable set stops with `No rule to
+make target`). Both mirror base's defaults. `publish-packages` is a no-op
+unless `PYPI_PUBLISH`, `NPM_PUBLISH` or `CARGO_PUBLISH` is set, in which
+case it exits non-zero naming the variable, so an image-only instance can't
+silently skip a package upload it configured. `verify-published` is a
+no-op. An instance that also publishes a package replaces both with its own
+implementations (upload from `dist/`; install the published release from
+the registry).
+
 ### `image.mk` variables
 
 The Makefile starts with `-include image.mk` (a missing file means all
