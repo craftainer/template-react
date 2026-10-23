@@ -25,6 +25,7 @@ import argparse
 import json
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -150,6 +151,23 @@ def tier_paths(root: Path, tiers: dict[str, list[str]], tier: str) -> set[str]:
     return {path for path in candidates if classify(path, tiers) == [tier]}
 
 
+def is_executable(path: Path) -> bool:
+    """Return whether the owner-execute bit is set (what git tracks as 100755)."""
+    return bool(path.stat().st_mode & stat.S_IXUSR)
+
+
+def sync_executable_bit(src: Path, dst: Path) -> None:
+    """Make ``dst``'s execute bits match ``src``'s, leaving its other bits alone."""
+    mode = dst.stat().st_mode
+    exec_bits = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    if is_executable(src):
+        # Like git: executable for every class that can read.
+        new_mode = mode | ((mode & (stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)) >> 2)
+    else:
+        new_mode = mode & ~exec_bits
+    dst.chmod(new_mode)
+
+
 def apply_replace(
     old_root: Path, new_root: Path, instance_root: Path, paths: set[str]
 ) -> dict[str, list[str]]:
@@ -163,6 +181,12 @@ def apply_replace(
         dst.parent.mkdir(parents=True, exist_ok=True)
         if not dst.exists() or dst.read_bytes() != src.read_bytes():
             shutil.copy2(src, dst)
+            updated.append(path)
+        elif is_executable(src) != is_executable(dst):
+            # Same content, different executable bit (e.g. a script the
+            # template fixed from 644 to 755): a content-only comparison
+            # would leave the instance's copy broken forever.
+            sync_executable_bit(src, dst)
             updated.append(path)
     removed: list[str] = []
     for path in sorted(old_paths - new_paths):

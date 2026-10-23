@@ -13,6 +13,10 @@
   subdirectory per service, each with its own compose fragment) and an
   `include:` list in `compose.instance.yml` pointing at them — see `stack/README.md`'s
   "Devcontainer stack pattern" convention once an instance adds one.
+  It also declares the optional `github_token` build secret (from the
+  `GITHUB_TOKEN` environment variable, which CI exports) that
+  authenticates `../scripts/develop.sh`'s downloads; unset locally, it is
+  simply absent.
 - `compose.instance.yml` — instance-owned stub (`ignore` tier, never
   touched by sync): an instance's `include:` list and extra `services.myapp`
   settings. See `docs/TEMPLATE.md`'s "Instance extension points".

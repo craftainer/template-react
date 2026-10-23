@@ -68,7 +68,14 @@ ENV SSL_CERT_FILE=${SSL_CERT_FILE} \
     CURL_CA_BUNDLE=${SSL_CERT_FILE}
 
 COPY scripts/develop.sh /tmp/develop.sh
-RUN bash /tmp/develop.sh "$PREK_VERSION" "$CLAUDE_CODE_VERSION" "$SNIP_VERSION" "$UV_VERSION" "$PYTHON_VERSION" "$NODE_VERSION" "$GH_VERSION"
+# github_token is an optional BuildKit secret (compose.yml's build.secrets,
+# or `docker build --secret id=github_token,env=GITHUB_TOKEN`), mounted for
+# this one instruction only: it authenticates develop.sh's GitHub downloads
+# against CI rate limits (HTTP 429) without ever entering a layer or the
+# image config, as a build ARG would. Absent (a local build), it is simply
+# unset and downloads go unauthenticated.
+RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
+    bash /tmp/develop.sh "$PREK_VERSION" "$CLAUDE_CODE_VERSION" "$SNIP_VERSION" "$UV_VERSION" "$PYTHON_VERSION" "$NODE_VERSION" "$GH_VERSION"
 
 # Instance hook: scripts/develop.d/*.sh, see that directory's README.md.
 COPY scripts/develop.d/ /tmp/develop.d/

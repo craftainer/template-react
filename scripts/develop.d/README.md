@@ -1,8 +1,8 @@
 # scripts/develop.d/
 
 Instance-owned hook: extra devcontainer tooling an instance layers on top
-of `../develop.sh`. This directory ships no scripts in base; a mid-layer template or an instance
-adds `NN-name.sh` scripts here (see `docs/TEMPLATE.md`'s "Instance extension
+of `../develop.sh`. Base ships no scripts here; mid-layer templates may. A mid-layer template or an
+instance adds `NN-name.sh` scripts here (see `docs/TEMPLATE.md`'s "Instance extension
 points"). A script a template ships is `replace` tier in its sync manifest, so
 a sync overwrites it; an instance's own script is listed in
 `.github/template-sync-manifest.local.yml` so a sync leaves it alone.

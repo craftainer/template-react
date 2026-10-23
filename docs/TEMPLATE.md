@@ -139,22 +139,50 @@ unchanged across every instance), then drives these targets:
 | Target | Runs | Where | Env available |
 |---|---|---|---|
 | `release-arches` | once, first | host runner | none; must print a JSON array on stdout, e.g. `["amd64"]` |
-| `build`, `sbom`, `release-assets`, `publish` | once **per arch**, in that order | host runner for that arch | `RELEASE_VERSION`, `RELEASE_TAG`, `RELEASE_ARCH`, `OCI_REGISTRY`, `OCI_IMAGE_NAME`, `OCI_REGISTRY_USERNAME`, `OCI_REGISTRY_PASSWORD`, `PYPI_PUBLISH`, `NPM_PUBLISH`, `CARGO_PUBLISH`, all `GITHUB_*`; on `publish` only, `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` (bootstrap secrets; empty when unset, so treat empty as absent) |
-| `release-check` | once, after all arches | **inside the devcontainer** (`devcontainers/ci`), stack up | `RELEASE_VERSION`, `RELEASE_TAG`, `PYPI_PUBLISH`, `NPM_PUBLISH`, `CARGO_PUBLISH` |
+| `build`, `sbom`, `release-assets`, `publish` | once **per arch**, in that order | host runner for that arch | `RELEASE_VERSION`, `RELEASE_TAG`, `RELEASE_ARCH`, `OCI_REGISTRY`, `OCI_IMAGE_NAME`, `OCI_REGISTRY_USERNAME`, `OCI_REGISTRY_PASSWORD`, all `GITHUB_*`; no package-registry variables or secrets, and no OIDC token |
+| `publish-packages` | once, after all arches, **only if** `PYPI_PUBLISH`, `NPM_PUBLISH` or `CARGO_PUBLISH` is set | host runner (own job, with `id-token: write`) | `RELEASE_VERSION`, `RELEASE_TAG`, `PYPI_PUBLISH`, `NPM_PUBLISH`, `CARGO_PUBLISH`, all `GITHUB_*`, the OIDC token, `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` (bootstrap secrets; empty when unset, so treat empty as absent); `dist/` holds every arch leg's files |
+| `release-check` | once, after all arches | **inside the devcontainer** (`devcontainers/ci`), stack up | `RELEASE_VERSION`, `RELEASE_TAG`, `GITHUB_REPOSITORY`, `PYPI_PUBLISH`, `NPM_PUBLISH`, `CARGO_PUBLISH` |
 | `finalize` | once, after `release-check` | host runner | same as per-arch minus `RELEASE_ARCH` |
 
 What each target is for: `build` produces the release artifact(s) (an
 image, `cargo build --release`, `npm pack`, `helm package`, ...); `sbom`
 writes an SBOM for what `build` produced; `release-assets` populates
 `dist/` (gitignored) with every file to attach to the GitHub release;
-`publish` pushes to whatever registry applies, skipping cleanly when its
-variable/secret isn't set; `release-check` runs checks that need the
+`publish` pushes the per-arch image to its registry, skipping cleanly when
+`OCI_REGISTRY` isn't set; `publish-packages` uploads packages (PyPI, npm,
+crates.io) once per release, never once per arch, and runs in a job that
+exists only for instances that set one of the `*_PUBLISH` variables, so
+an image-only instance never has `id-token: write` or a package secret
+(base's default fails if any `*_PUBLISH` variable is set, so an instance
+can't silently skip it; with none set it is a no-op; it runs on a fresh runner with a checkout and the
+downloaded `dist/` only, so it uploads from `dist/` and sets up its own
+tooling); `release-check` runs checks that need the
 backing services (e.g. tests producing a coverage report); `finalize`
 does cross-arch work such as combining per-arch registry tags into one
 multi-arch manifest list. `RELEASE_VERSION` (e.g. `1.2.3` or
 `1.2.3-alpha.1`) and `RELEASE_TAG` (the same, `v`-prefixed) are for
 embedding or tagging with the version. A single-arch no-op is the
 default: `release-arches` prints `["amd64"]`.
+
+**Upgrading a package instance.** Before this contract, `publish` also
+uploaded packages, once per arch. Now `publish` is image-only and gets no
+`*_PUBLISH` variables, secrets or OIDC token. An instance that publishes
+packages must move that upload from `publish` into a new
+`publish-packages` target (reading artifacts from `dist/`, setting up its
+own tooling). Until it does, base's default `publish-packages` (if the
+instance kept it) fails with a message naming the variable that is set;
+an instance whose Makefile has no such target fails with `make: No rule
+to make target`. Either way the release stops instead of skipping the
+upload.
+
+**Package instance checklist.** An instance that publishes a package also:
+sets `repository`, homepage and bugs URLs in its package manifest
+(`package.json`, `pyproject.toml`, `Cargo.toml`) -- npm provenance
+verifies the repository URL against the publishing repository, and the
+other registries show these links to users; and implements `publish-packages` itself, which replaces base's
+default (the `DefaultPublishPackagesTest` in `.github/scripts` skips itself
+once the default message is gone). `release-check` receives
+`GITHUB_REPOSITORY`, so an instance can run repository guards there.
 
 `dist/` rules: each arch leg's `dist/` is uploaded as artifact
 `release-assets-<arch>`, and the final job downloads all of them into one
