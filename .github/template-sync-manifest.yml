@@ -149,6 +149,9 @@ ignore:
   - .storybook/stubs.tsx
   - tests/visual/__screenshots__/
 
+  # The admin's end-to-end journey against this app's backend (ADR 0006).
+  - tests/e2e/
+
   # Env-var documentation for the instance's own deployment.
   - .env.example
 

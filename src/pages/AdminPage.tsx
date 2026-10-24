@@ -1,0 +1,272 @@
+// Manifest-driven admin: every resource the signed-in caller's manifest lists
+// gets a records table, a form, a detail page and -- only where the manifest's
+// capabilities allow it -- statistics, predictions, revisions and a trash.
+// Nothing here knows the Hero model; see docs/adrs/0006-manifest-driven-admin.md.
+import { useMemo, useState } from "react";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import AddIcon from "@mui/icons-material/Add";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import {
+  DeleteAction,
+  PageShell,
+  PredictionsDashboard,
+  RecordDetail,
+  RecordRevisions,
+  ResourceForm,
+  ResourceGate,
+  ResourceList,
+  StatsDashboard,
+  SYSTEM_FIELDS,
+  TrashList,
+  type ReadyResource,
+  type UrlAdapter,
+} from "@craftainer/crud-views";
+import { CrudApiProvider } from "../api/CrudApi";
+import { useCrudApi } from "../api/crudApiContext";
+import { etagGetter, latestResources } from "../api/sdk";
+import { useUrlParams } from "./useUrlParams";
+
+/**
+ * Edit cells in the table. Off until crud-views 0.2.0 (item VW5): the list
+ * endpoint returns no ETags, so an inline edit would be an unconditional
+ * PATCH, and 0.1.0's `ifMatch` cannot ask the SDK cache (async) for one. With
+ * 0.2.0, pass `ifMatch={rowEtag}` where `rowEtag` fetches the row by id once
+ * and returns `etagGetter(api, ready.resource)(id)`, then set this to true.
+ */
+const INLINE_EDIT = false;
+
+type View = "records" | "stats" | "predictions" | "trash";
+
+const VIEW_LABELS: Record<View, string> = {
+  records: "Records",
+  stats: "Statistics",
+  predictions: "Predictions",
+  trash: "Trash",
+};
+
+/** The views this resource's capabilities allow, in tab order. */
+function availableViews(ready: ReadyResource): View[] {
+  const { capabilities } = ready;
+  return [
+    "records",
+    ...(capabilities.stats ? (["stats"] as const) : []),
+    ...(capabilities.predict ? (["predictions"] as const) : []),
+    ...(capabilities.archive_restore ? (["trash"] as const) : []),
+  ];
+}
+
+const tabId = (view: View) => `admin-tab-${view}`;
+const panelId = (view: View) => `admin-panel-${view}`;
+
+interface AdminProps {
+  readonly urlAdapter?: UrlAdapter | undefined;
+}
+
+/** The admin; signs the SDK client in with the OIDC session first. */
+export function AdminPage({ urlAdapter }: AdminProps) {
+  return (
+    <CrudApiProvider>
+      <Admin urlAdapter={urlAdapter} />
+    </CrudApiProvider>
+  );
+}
+
+function Admin({ urlAdapter }: AdminProps) {
+  const { manifest } = useCrudApi();
+  const resources = useMemo(() => latestResources(manifest), [manifest]);
+  const { params, update } = useUrlParams(urlAdapter);
+
+  if (resources.length === 0) {
+    return (
+      <Alert severity="info">
+        Your account can see no resources. Ask for the viewer role.
+      </Alert>
+    );
+  }
+
+  const requested = params.get("resource");
+  const current =
+    resources.find((r) => r.name === requested)?.name ?? resources[0].name;
+
+  return (
+    <Stack spacing={2}>
+      {resources.length > 1 && (
+        <Tabs
+          value={current}
+          onChange={(_event, name: string) =>
+            update({ resource: name, id: null, view: null })
+          }
+          aria-label="Resources"
+        >
+          {resources.map((r) => (
+            <Tab key={r.name} value={r.name} label={r.title} />
+          ))}
+        </Tabs>
+      )}
+      <ResourceGate name={current}>
+        {(ready) => (
+          <ResourceAdmin
+            key={ready.resource.name}
+            ready={ready}
+            urlAdapter={urlAdapter}
+          />
+        )}
+      </ResourceGate>
+    </Stack>
+  );
+}
+
+function ResourceAdmin({
+  ready,
+  urlAdapter,
+}: {
+  readonly ready: ReadyResource;
+  readonly urlAdapter?: UrlAdapter | undefined;
+}) {
+  const { params, update } = useUrlParams(urlAdapter);
+  const idParam = params.get("id");
+  const id = idParam !== null && /^\d+$/.test(idParam) ? Number(idParam) : null;
+
+  return id === null ? (
+    <ResourceOverview ready={ready} urlAdapter={urlAdapter} />
+  ) : (
+    <RecordPage ready={ready} id={id} onBack={() => update({ id: null })} />
+  );
+}
+
+function ResourceOverview({
+  ready,
+  urlAdapter,
+}: {
+  readonly ready: ReadyResource;
+  readonly urlAdapter?: UrlAdapter | undefined;
+}) {
+  const { params, update } = useUrlParams(urlAdapter);
+  const [creating, setCreating] = useState(false);
+  const views = availableViews(ready);
+  const requested = params.get("view") as View | null;
+  const view = requested && views.includes(requested) ? requested : "records";
+  const { name } = ready.resource;
+
+  // The system fields (ids, owner, lifecycle and audit timestamps) live on the
+  // detail page; JSON fields do not fit a cell.
+  const columns = ready.fields
+    .filter((f) => !SYSTEM_FIELDS.includes(f.name) && f.kind !== "json")
+    .map((f) => f.name);
+
+  return (
+    <PageShell
+      title={ready.resource.title}
+      maxWidth={false}
+      actions={
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setCreating(true)}
+        >
+          Add record
+        </Button>
+      }
+    >
+      <Stack spacing={2}>
+        {views.length > 1 && (
+          <Tabs
+            value={view}
+            onChange={(_event, next: View) =>
+              update({ view: next === "records" ? null : next })
+            }
+            aria-label={`${ready.resource.title} views`}
+          >
+            {views.map((v) => (
+              <Tab
+                key={v}
+                value={v}
+                label={VIEW_LABELS[v]}
+                id={tabId(v)}
+                aria-controls={panelId(v)}
+              />
+            ))}
+          </Tabs>
+        )}
+        <Box role="tabpanel" id={panelId(view)} aria-labelledby={tabId(view)}>
+          {view === "records" && (
+            <ResourceList
+              resource={name}
+              variant="table"
+              filters={["quick"]}
+              columns={columns}
+              editable={INLINE_EDIT}
+              urlAdapter={urlAdapter}
+              prefix={`${name}_`}
+              onRowClick={(row) => update({ id: String(row.id) })}
+            />
+          )}
+          {view === "stats" && <StatsDashboard resource={name} />}
+          {view === "predictions" && <PredictionsDashboard resource={name} />}
+          {view === "trash" && <TrashList resource={name} />}
+        </Box>
+      </Stack>
+      <ResourceForm
+        name={name}
+        presentation="dialog"
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={() => setCreating(false)}
+        recordLabel="record"
+      />
+    </PageShell>
+  );
+}
+
+function RecordPage({
+  ready,
+  id,
+  onBack,
+}: {
+  readonly ready: ReadyResource;
+  readonly id: number;
+  readonly onBack: () => void;
+}) {
+  const api = useCrudApi();
+  const { name } = ready.resource;
+  const etag = useMemo(() => etagGetter(api, ready.resource), [api, ready]);
+
+  return (
+    <Stack spacing={2}>
+      <Box>
+        <Button startIcon={<ArrowBackIcon />} onClick={onBack}>
+          Back to {ready.resource.title}
+        </Button>
+      </Box>
+      <RecordDetail
+        resource={name}
+        id={id}
+        variant="form"
+        renderForm={({ id: recordId, onDone }) => (
+          <ResourceForm
+            name={name}
+            id={recordId}
+            etag={etag}
+            recordLabel="record"
+            onSaved={onDone}
+          />
+        )}
+      />
+      <Stack direction="row" spacing={1}>
+        <DeleteAction
+          name={name}
+          id={id}
+          variant="confirm"
+          recordLabel="record"
+          onDeleted={onBack}
+        />
+      </Stack>
+      <RecordRevisions resource={name} id={id} variant="list" />
+    </Stack>
+  );
+}

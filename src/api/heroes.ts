@@ -1,11 +1,6 @@
-// Client for the backend's worked-example CRUD resource -- mirrors
-// `app.crud_1.heroes.heroes_v2`'s HeroV2/HeroV2Create view models
-// field-for-field. The list/create/delete calls themselves come from
-// src/api/crud.ts's generic factory, the same way heroes_v2.py itself
-// just injects Hero's types into app.controllers.crud_router's generic
-// build_json_router rather than hand-writing routes.
-import { createCrudClient } from "./crud";
-
+// The backend's worked-example record (`app.crud_1.heroes.heroes_v2`'s
+// HeroV2 view). The admin does not use it -- it is manifest-driven and works
+// on plain JSON records -- but .storybook/stubs.tsx types its fixtures with it.
 export interface Hero {
   id: number;
   name: string | null;
@@ -20,13 +15,3 @@ export interface Hero {
   created_at: string;
   updated_at: string;
 }
-
-export interface HeroCreate {
-  name: string;
-  powers: string[];
-  power_level?: number | null;
-}
-
-export const heroesCrud = createCrudClient<Hero, HeroCreate>(
-  "/crud/v1/heroes/v2/json",
-);

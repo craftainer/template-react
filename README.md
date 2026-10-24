@@ -33,6 +33,9 @@ decisions:
 - [`0005-storybook-visual-regression-and-axe.md`](docs/adrs/0005-storybook-visual-regression-and-axe.md) —
   Storybook for every component, Playwright screenshot baselines and axe
   checks over the stories, rendered in a pinned Playwright image.
+- [`0006-manifest-driven-admin.md`](docs/adrs/0006-manifest-driven-admin.md) —
+  the admin built on `@craftainer/crud-sdk` and `@craftainer/crud-views`, from
+  the backend's CRUD manifest, and its end-to-end test.
 
 ## Getting started
 
@@ -52,6 +55,7 @@ pnpm build      # production bundle -> dist/
 pnpm storybook  # component workshop, http://localhost:6006
 tests/visual/run.sh         # visual regression + axe over the stories (Docker)
 tests/visual/run.sh update  # rewrite the screenshot baselines
+tests/e2e/run.sh            # admin journey against a running template-fastapi (Docker)
 ```
 
 ## Connecting to the backend
