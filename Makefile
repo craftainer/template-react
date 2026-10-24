@@ -16,7 +16,7 @@
 
 -include image.mk
 
-.PHONY: repo-check release-arches build sbom release-assets publish release-check finalize image-smoke check-arch
+.PHONY: repo-check release-arches build sbom release-assets publish publish-packages verify-published release-check finalize image-smoke check-arch
 .DEFAULT_GOAL := release-arches
 
 DOCKERFILE ?= Dockerfile
@@ -143,6 +143,28 @@ else
 		copy --all --authfile /auth/auth.json --digestfile /$(ASSET).digest \
 		oci-archive:/$(ASSET).tar docker://$(OCI_REGISTRY)/$(OCI_NAME):$(RELEASE_VERSION)-$(RELEASE_ARCH)
 endif
+
+# Once, after every arch leg, and only when the instance sets PYPI_PUBLISH,
+# NPM_PUBLISH or CARGO_PUBLISH. template-docker ships an image, not a
+# package, so like base's default this fails loudly when one of those is set
+# rather than silently releasing without its package; an instance that
+# publishes packages replaces this target with its own upload from dist/.
+publish-packages:
+	@set -e; \
+	for v in PYPI_PUBLISH NPM_PUBLISH CARGO_PUBLISH; do \
+	  if [ -n "$$(printenv $$v)" ]; then \
+	    echo "error: this instance sets $$v but its Makefile doesn't implement publish-packages; replace this target with the package upload (see docs/TEMPLATE.md)" >&2; \
+	    exit 1; \
+	  fi; \
+	done; \
+	echo "template-docker ships no package -- nothing to publish."
+
+# Once, after publish-packages succeeded, and only when the instance sets
+# PYPI_PUBLISH, NPM_PUBLISH or CARGO_PUBLISH: check the published release
+# from the registry (e.g. install it). A no-op by default: there is nothing
+# to verify unless an instance implements it.
+verify-published:
+	@echo "template-docker ships no package -- nothing to verify."
 
 # Smoke-tests the tar in dist/ for RELEASE_ARCH (default: the host's arch).
 # image.mk's IMAGE_SMOKE_* values reach the script through the environment.

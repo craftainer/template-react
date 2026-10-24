@@ -95,7 +95,9 @@ _SCRIPT_PATH_RE = re.compile(r"(?<![\w.-])(\.github/scripts/[\w.-]+\.sh)\b")
 # `${{ ... }}/` prefix, quotes. Stripped from the text before the path.
 _PATH_PREFIX_RE = re.compile(r"""["']?(?:\$\{\{[^}]*\}\}/|\$\{?GITHUB_WORKSPACE\}?/|\./)?["']?$""")
 # An interpreter (optionally by path, with flags) ending the text before a path.
-_INTERPRETER_RE = re.compile(r"(?:^|[\s;&|(])(?:\S*/)?(?:bash|sh|source|\.)(?:\s+-(?!\w*c)\S+)*\s+$")
+_INTERPRETER_RE = re.compile(
+    r"(?:^|[\s;&|(])(?:\S*/)?(?:bash|sh|source|\.)(?:\s+-(?!\w*c)\S+)*\s+$"
+)
 
 
 def directly_invoked_scripts(workflow_text: str) -> set[str]:
@@ -155,7 +157,7 @@ class DirectlyInvokedScriptsAreExecutableTest(unittest.TestCase):
             'run: bash "${GITHUB_WORKSPACE}/.github/scripts/a.sh"',
             "run: source .github/scripts/a.sh",
             "run: . .github/scripts/a.sh",
-            "run: bash \"${{ github.workspace }}/.github/scripts/a.sh\"",
+            'run: bash "${{ github.workspace }}/.github/scripts/a.sh"',
             "# run: .github/scripts/a.sh",
             "run: python .github/scripts/a.py",
         ]
@@ -176,7 +178,9 @@ DEFAULT_PUBLISH_PACKAGES_MARKER = "doesn't implement publish-packages"
 
 def keeps_default_publish_packages(makefile_text: str) -> bool:
     """Whether a Makefile still has base's default error message (comments don't count)."""
-    code = "\n".join(line for line in makefile_text.splitlines() if not line.lstrip().startswith("#"))
+    code = "\n".join(
+        line for line in makefile_text.splitlines() if not line.lstrip().startswith("#")
+    )
     return DEFAULT_PUBLISH_PACKAGES_MARKER in code
 
 
@@ -187,19 +191,23 @@ class KeepsDefaultPublishPackagesTest(unittest.TestCase):
         """The marker matches the default message and nothing else."""
         self.assertTrue(
             keeps_default_publish_packages(
-                'publish-packages:\n\t@echo "error: Makefile doesn\'t implement publish-packages" >&2\n'
+                "publish-packages:\n"
+                '\t@echo "error: Makefile doesn\'t implement publish-packages" >&2\n'
             )
         )
         self.assertFalse(keeps_default_publish_packages("publish-packages:\n\tnpm publish\n"))
         # A comment mentioning the phrase is not the default.
         self.assertFalse(
-            keeps_default_publish_packages("# we don't implement publish-packages yet\npublish-packages:\n\tnpm publish\n")
+            keeps_default_publish_packages(
+                "# we don't implement publish-packages yet\npublish-packages:\n\tnpm publish\n"
+            )
         )
 
 
 @unittest.skipUnless(shutil.which("make"), "make not installed")
 @unittest.skipUnless(
-    (REPO_ROOT / "Makefile").is_file() and keeps_default_publish_packages((REPO_ROOT / "Makefile").read_text()),
+    (REPO_ROOT / "Makefile").is_file()
+    and keeps_default_publish_packages((REPO_ROOT / "Makefile").read_text()),
     "this Makefile implements publish-packages itself",
 )
 class DefaultPublishPackagesTest(unittest.TestCase):
@@ -226,7 +234,9 @@ class DefaultPublishPackagesTest(unittest.TestCase):
         for var in ("PYPI_PUBLISH", "NPM_PUBLISH", "CARGO_PUBLISH"):
             result = self.run_target(**{var: "1"})
             self.assertNotEqual(result.returncode, 0, var)
-            self.assertIn(f"sets {var} but its Makefile doesn't implement publish-packages", result.stderr)
+            self.assertIn(
+                f"sets {var} but its Makefile doesn't implement publish-packages", result.stderr
+            )
 
 
 if __name__ == "__main__":
