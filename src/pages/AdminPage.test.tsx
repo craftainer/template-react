@@ -55,6 +55,33 @@ describe("AdminPage", () => {
     expect(await screen.findByText(/could not load the api/i)).toBeVisible();
   });
 
+  it("offers Add record only to a caller whose roles may write", async () => {
+    const jwt = (roles: string[]) =>
+      `h.${btoa(JSON.stringify({ resource_access: { api: { roles } } }))}.s`;
+    const signedInAs = (roles: string[]) =>
+      useAuthMock.mockReturnValue({
+        isAuthenticated: true,
+        settings: { client_id: "api" },
+        user: { access_token: jwt(roles), profile: { sub: "u1" } },
+      });
+
+    installAdminStub();
+    signedInAs(["viewer"]);
+    const viewer = render(<AdminPage urlAdapter={memoryUrlAdapter()} />);
+    await screen.findByRole("heading", { name: "Heroes" });
+    expect(
+      screen.queryByRole("button", { name: "Add record" }),
+    ).not.toBeInTheDocument();
+    viewer.unmount();
+
+    installAdminStub();
+    signedInAs(["maintainer"]);
+    render(<AdminPage urlAdapter={memoryUrlAdapter()} />);
+    expect(
+      await screen.findByRole("button", { name: "Add record" }),
+    ).toBeInTheDocument();
+  });
+
   it("opens the create form from Add record", async () => {
     installAdminStub();
     render(<AdminPage urlAdapter={memoryUrlAdapter()} />);

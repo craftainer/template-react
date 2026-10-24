@@ -29,7 +29,9 @@ export function CrudApiProvider({ children }: { children: ReactNode }) {
     createCrudApi({
       getToken: async ({ refresh }) => {
         if (refresh) {
-          const user = await session.current.signinSilent();
+          // A 401 after a refresh that cannot be renewed: sign in again.
+          const user = await session.current.signinSilent().catch(() => null);
+          if (!user) void session.current.signinRedirect();
           return user?.access_token;
         }
         return session.current.user?.access_token;

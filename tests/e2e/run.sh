@@ -17,7 +17,7 @@ cd "$(dirname "$0")/../.."
 # is reachable on localhost; Keycloak is resolved here and handed in, because
 # its name only exists in the devcontainer's /etc/hosts.
 keycloak_host="${E2E_KEYCLOAK_HOST:-keycloak}"
-keycloak_ip="$(getent hosts "$keycloak_host" | awk '{print $1; exit}')"
+keycloak_ip="$(getent hosts "$keycloak_host" | awk '{print $1; exit}' || true)"
 [ -n "$keycloak_ip" ] || { echo "cannot resolve $keycloak_host (set E2E_KEYCLOAK_HOST)" >&2; exit 1; }
 
 exec docker run --rm --ipc=host --init --network host \

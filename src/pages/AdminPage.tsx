@@ -26,8 +26,10 @@ import {
   type ReadyResource,
   type UrlAdapter,
 } from "@craftainer/crud-views";
+import { useAuth } from "react-oidc-context";
 import { CrudApiProvider } from "../api/CrudApi";
 import { useCrudApi } from "../api/crudApiContext";
+import { mayDo, rolesFromToken } from "../api/roles";
 import { etagGetter, latestResources } from "../api/sdk";
 import { useUrlParams } from "./useUrlParams";
 
@@ -39,6 +41,16 @@ import { useUrlParams } from "./useUrlParams";
  * and returns `etagGetter(api, ready.resource)(id)`, then set this to true.
  */
 const INLINE_EDIT = false;
+
+/** The signed-in caller's roles from the access token, `null` when unreadable. */
+function useCallerRoles() {
+  const auth = useAuth();
+  // `settings` is the OIDC client's configuration (its `client_id` names the
+  // client whose roles count); a stubbed session has none.
+  const clientId = (auth.settings as { client_id?: string } | undefined)
+    ?.client_id;
+  return rolesFromToken(auth.user?.access_token, clientId ?? "");
+}
 
 type View = "records" | "stats" | "predictions" | "trash";
 
@@ -69,8 +81,10 @@ interface AdminProps {
 
 /** The admin; signs the SDK client in with the OIDC session first. */
 export function AdminPage({ urlAdapter }: AdminProps) {
+  const auth = useAuth();
   return (
-    <CrudApiProvider>
+    // A new identity gets a new client, cache and manifest.
+    <CrudApiProvider key={auth.user?.profile.sub}>
       <Admin urlAdapter={urlAdapter} />
     </CrudApiProvider>
   );
@@ -148,6 +162,7 @@ function ResourceOverview({
 }) {
   const { params, update } = useUrlParams(urlAdapter);
   const [creating, setCreating] = useState(false);
+  const roles = useCallerRoles();
   const views = availableViews(ready);
   const requested = params.get("view") as View | null;
   const view = requested && views.includes(requested) ? requested : "records";
@@ -164,13 +179,15 @@ function ResourceOverview({
       title={ready.resource.title}
       maxWidth={false}
       actions={
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setCreating(true)}
-        >
-          Add record
-        </Button>
+        mayDo(roles, ready.resource.auth.write_roles) ? (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setCreating(true)}
+          >
+            Add record
+          </Button>
+        ) : undefined
       }
     >
       <Stack spacing={2}>
@@ -193,7 +210,15 @@ function ResourceOverview({
             ))}
           </Tabs>
         )}
-        <Box role="tabpanel" id={panelId(view)} aria-labelledby={tabId(view)}>
+        <Box
+          {...(views.length > 1
+            ? {
+                role: "tabpanel",
+                id: panelId(view),
+                "aria-labelledby": tabId(view),
+              }
+            : {})}
+        >
           {view === "records" && (
             <ResourceList
               resource={name}
@@ -234,6 +259,7 @@ function RecordPage({
 }) {
   const api = useCrudApi();
   const { name } = ready.resource;
+  const roles = useCallerRoles();
   const etag = useMemo(() => etagGetter(api, ready.resource), [api, ready]);
 
   return (
@@ -257,15 +283,17 @@ function RecordPage({
           />
         )}
       />
-      <Stack direction="row" spacing={1}>
-        <DeleteAction
-          name={name}
-          id={id}
-          variant="confirm"
-          recordLabel="record"
-          onDeleted={onBack}
-        />
-      </Stack>
+      {mayDo(roles, ready.resource.auth.delete_roles) && (
+        <Stack direction="row" spacing={1}>
+          <DeleteAction
+            name={name}
+            id={id}
+            variant="confirm"
+            recordLabel="record"
+            onDeleted={onBack}
+          />
+        </Stack>
+      )}
       <RecordRevisions resource={name} id={id} variant="list" />
     </Stack>
   );

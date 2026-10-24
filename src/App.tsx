@@ -62,7 +62,7 @@ function App() {
           <AdminPage />
         ) : (
           <Typography color="text.secondary">
-            Sign in to view and manage heroes.
+            Sign in to view and manage records.
           </Typography>
         )}
       </Container>

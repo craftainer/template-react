@@ -18,7 +18,7 @@ describe("App", () => {
       screen.getByRole("button", { name: /sign in/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/sign in to view and manage heroes/i),
+      screen.getByText(/sign in to view and manage records/i),
     ).toBeInTheDocument();
   });
 
