@@ -7,8 +7,8 @@
 import { defineConfig, mergeConfig, type ConfigEnv } from "vite";
 import base from "../../vite.config";
 
-export default defineConfig((env: ConfigEnv) =>
-  mergeConfig(typeof base === "function" ? base(env) : base, {
+export default defineConfig(async (env: ConfigEnv) =>
+  mergeConfig(await (typeof base === "function" ? base(env) : base), {
     preview: { cors: false },
   }),
 );

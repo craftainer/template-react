@@ -54,7 +54,7 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Name").fill(name);
   await dialog.getByLabel("Powers").fill("Testing, Filing");
-  await dialog.getByRole("button", { name: /save|create/i }).click();
+  await dialog.getByRole("button", { name: "Create", exact: true }).click();
   await expect(dialog).toBeHidden();
 
   // Find it with the quick search, then open it.
@@ -70,13 +70,15 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   const id = new URL(page.url()).searchParams.get("id");
 
   // A conditional save with the ETag read with the record succeeds.
-  const field = page.getByLabel("Name");
+  const field = page
+    .getByRole("form", { name: /edit record/i })
+    .getByLabel("Name");
   await expect(field).toHaveValue(name);
   await field.fill(`${name} edited`);
   const saved = page.waitForResponse(
     (r) => r.request().method() === "PATCH" && r.status() === 200,
   );
-  await page.getByRole("button", { name: /save/i }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   expect((await saved).request().headers()["if-match"]).toBeTruthy();
   await expect(field).toHaveValue(`${name} edited`);
 
@@ -90,9 +92,9 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   const refused = page.waitForResponse(
     (r) => r.request().method() === "PATCH" && r.status() === 412,
   );
-  await page.getByRole("button", { name: /save/i }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await refused;
-  await expect(page.getByText("Saved")).toBeHidden();
+  await expect(page.getByText(/was changed since you opened it/)).toBeVisible();
 
   // Archive it from the record page; it then shows up in the trash.
   await page.getByRole("button", { name: "Delete" }).click();

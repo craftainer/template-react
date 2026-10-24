@@ -137,7 +137,14 @@ export function installAdminStub(options: AdminStubOptions = {}): AdminStub {
       return json(201, created, { ETag: etagOf(created, 0) });
     }
     if (request.method === "PATCH" && row) {
-      stub.ifMatch.push(request.headers.get("If-Match"));
+      const precondition = request.headers.get("If-Match");
+      stub.ifMatch.push(precondition);
+      if (
+        precondition !== null &&
+        precondition !== etagOf(row, versions.get(id) ?? 0)
+      ) {
+        return json(412, { title: "Precondition Failed", status: 412 });
+      }
       Object.assign(row, await request.json());
       const version = (versions.get(id) ?? 0) + 1;
       versions.set(id, version);

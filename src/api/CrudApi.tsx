@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import { QueryClient } from "@tanstack/react-query";
 import { CrudProvider } from "@craftainer/crud-views";
@@ -21,6 +22,7 @@ export function CrudApiProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
   const [api, setApi] = useState<CrudApi | null>(null);
   const [error, setError] = useState<Error | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,11 +45,27 @@ export function CrudApiProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   if (error) {
     return (
-      <Alert severity="error">Could not load the API: {error.message}</Alert>
+      <Alert
+        severity="error"
+        action={
+          <Button
+            color="inherit"
+            size="small"
+            onClick={() => {
+              setError(null);
+              setAttempt((n) => n + 1);
+            }}
+          >
+            Retry
+          </Button>
+        }
+      >
+        Could not load the API: {error.message}
+      </Alert>
     );
   }
   if (!api) {

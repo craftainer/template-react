@@ -77,4 +77,21 @@ describe("AdminPage", () => {
 
     await waitFor(() => expect(stub.ifMatch).toEqual(['"1-0"']));
   });
+
+  it("refuses a stale If-Match like the backend (the stub the stories rely on)", async () => {
+    const stub = installAdminStub();
+    const patch = (ifMatch: string) =>
+      window.fetch(
+        `${window.location.origin}/api/crud/v1/heroes/v2/json?id=1`,
+        {
+          method: "PATCH",
+          headers: { "If-Match": ifMatch, "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "X" }),
+        },
+      );
+
+    expect((await patch('"1-0"')).status).toBe(200);
+    expect((await patch('"1-0"')).status).toBe(412);
+    expect(stub.ifMatch).toEqual(['"1-0"', '"1-0"']);
+  });
 });

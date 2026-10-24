@@ -45,6 +45,13 @@ export function withApiPrefix(
         body: hasBody ? await input.clone().arrayBuffer() : undefined,
         signal: input.signal,
         credentials: input.credentials,
+        cache: input.cache,
+        redirect: input.redirect,
+        referrer: input.referrer,
+        referrerPolicy: input.referrerPolicy,
+        integrity: input.integrity,
+        keepalive: input.keepalive,
+        mode: input.mode,
         ...init,
       });
     }
