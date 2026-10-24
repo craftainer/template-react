@@ -2,3 +2,7 @@ allowBuilds:
   # esbuild (pulled in by Storybook) ships its binary via per-platform optional
   # packages; its postinstall is only a fast-path optimisation.
   esbuild: false
+# Our own libraries are released by us and consumed right away (UI layer
+# follows each release); the age floor protects against third-party packages.
+minimumReleaseAgeExclude:
+  - "@craftainer/*"

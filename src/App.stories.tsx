@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { heroFixtures } from "../.storybook/stubs";
+import { withAdminStub } from "./pages/withAdminStub";
+import { within } from "storybook/test";
 import App from "./App";
 
 const meta = {
@@ -13,7 +14,11 @@ type Story = StoryObj<typeof meta>;
 export const SignedOut: Story = { parameters: { auth: "signedOut" } };
 export const AuthLoading: Story = { parameters: { auth: "loading" } };
 export const SignedIn: Story = {
-  parameters: { auth: "signedIn", api: { heroes: heroFixtures } },
+  decorators: [withAdminStub],
+  parameters: { auth: "signedIn" },
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findByText("Captain Ledger");
+  },
 };
 export const BackendDown: Story = {
   parameters: { auth: "signedOut", api: { health: "down" } },
