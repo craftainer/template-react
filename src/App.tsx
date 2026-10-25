@@ -8,7 +8,7 @@ import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
 import { useAuth } from "react-oidc-context";
 import { HealthStatus } from "./components/HealthStatus";
-import { HeroesPage } from "./pages/HeroesPage";
+import { AdminPage } from "./pages/AdminPage";
 
 function App() {
   const auth = useAuth();
@@ -53,16 +53,16 @@ function App() {
         </Toolbar>
       </AppBar>
 
-      <Container component="main" maxWidth="md" sx={{ py: 4 }}>
+      <Container component="main" maxWidth="lg" sx={{ py: 4 }}>
         {auth.isLoading ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
             <CircularProgress aria-label="Loading" />
           </Box>
         ) : auth.isAuthenticated ? (
-          <HeroesPage />
+          <AdminPage />
         ) : (
           <Typography color="text.secondary">
-            Sign in to view and manage heroes.
+            Sign in to view and manage records.
           </Typography>
         )}
       </Container>
