@@ -178,6 +178,17 @@ describe("rowEtagGetter", () => {
     ).rejects.toThrow(/version/);
   });
 
+  it("compares shown fields when a row has no updated_at", async () => {
+    const { api, resource } = await setup();
+    const { updated_at: _omitted, ...row } = recordFixtures[0];
+    void _omitted;
+
+    await expect(rowEtagGetter(api, resource)(row)).resolves.toBe('"before"');
+    await expect(
+      rowEtagGetter(api, resource)({ ...row, name: "Older name" }),
+    ).rejects.toThrow(/changed since the list loaded/);
+  });
+
   it("refuses an edit of a row that changed since the list loaded", async () => {
     const { api, resource } = await setup();
 
@@ -185,7 +196,7 @@ describe("rowEtagGetter", () => {
       rowEtagGetter(
         api,
         resource,
-      )({ ...recordFixtures[0], name: "Older name" }),
+      )({ ...recordFixtures[0], updated_at: "2025-12-31T00:00:00Z" }),
     ).rejects.toThrow(/changed since the list loaded/);
   });
 });

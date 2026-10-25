@@ -57,7 +57,7 @@ Four facts about the libraries and the app shaped the wiring:
   the one `RecordDetail` mounts). A stale save fails with 412 and the form
   shows the conflict. **Inline edit in the table is on** for callers whose roles
   may write: `rowEtagGetter` reads the record by id (the SDK cache keeps its
-  ETag), refuses the edit when that read no longer matches the row the user
+  ETag), refuses the edit when that read no longer matches (by `updated_at`, else by the shown fields) the row the user
   edited (the record changed since the list loaded, and an ETag taken now would
   let the edit overwrite that change), and otherwise returns
   `cache.cachedEtag(...)` as `If-Match`; a 412 from a race shows as a save

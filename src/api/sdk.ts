@@ -146,11 +146,16 @@ export function rowEtagGetter(
       resource.api_version,
     );
     const current: Row = await handle.get(id);
-    const changed = Object.keys(row).some(
-      (key) =>
-        key in current &&
-        JSON.stringify(current[key]) !== JSON.stringify(row[key]),
-    );
+    // `updated_at` is the server's own version stamp; without one, compare
+    // the fields the row shows.
+    const changed =
+      "updated_at" in row && "updated_at" in current
+        ? row.updated_at !== current.updated_at
+        : Object.keys(row).some(
+            (key) =>
+              key in current &&
+              JSON.stringify(current[key]) !== JSON.stringify(row[key]),
+          );
     if (changed) {
       throw new Error(
         "This record was changed since the list loaded. Reload the list and try again.",

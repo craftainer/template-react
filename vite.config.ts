@@ -35,5 +35,8 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    // Stated outright although it defaults to `server.cors`: the e2e serves
+    // the built bundle with `vite preview` and needs ETags to be stored.
+    preview: { cors: false },
   };
 });

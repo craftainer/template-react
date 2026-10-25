@@ -191,7 +191,7 @@ function ResourceOverview({
   const api = useCrudApi();
   const rowEtag = useMemo(
     () => rowEtagGetter(api, ready.resource),
-    [api, ready],
+    [api, ready.resource],
   );
   const opening = useOpenOnClick((id) => update({ id }));
   const views = availableViews(ready);
@@ -293,7 +293,10 @@ function RecordPage({
   const api = useCrudApi();
   const { name } = ready.resource;
   const roles = useCallerRoles();
-  const etag = useMemo(() => etagGetter(api, ready.resource), [api, ready]);
+  const etag = useMemo(
+    () => etagGetter(api, ready.resource),
+    [api, ready.resource],
+  );
 
   return (
     <Stack spacing={2}>
