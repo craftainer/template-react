@@ -41,9 +41,10 @@ gh_version=$7
 #   and removed by one EXIT/INT/TERM trap, so a failed step (set -e), a
 #   failed checksum or a kill never leaves the bearer-token header file or
 #   a download directory behind.
-# - retry: reruns a whole step (download plus running an installer) a
-#   bounded number of times with doubling delays, for installers that do
-#   their own downloads inside the script and so can't be wrapped by fetch.
+# - retry: reruns a step a bounded number of times with doubling delays, for
+#   installers that do their own downloads inside the script and so can't be
+#   wrapped by fetch. Never put a `fetch` inside a `retry`: their retries
+#   would multiply.
 cleanup_paths=()
 cleanup() {
     [ "${#cleanup_paths[@]}" -eq 0 ] || rm -rf "${cleanup_paths[@]}" || true
@@ -57,6 +58,7 @@ trap 'exit 143' TERM
 # main shell only, never inside $(...), a pipeline or a background job: a
 # subshell's registration is lost.
 tmp_result=""
+fetch_label="" # optional: what the next fetch downloads, for its failure message
 tmp_path() {
     tmp_result="$(mktemp "$@")"
     cleanup_paths+=("$tmp_result")
@@ -103,6 +105,9 @@ fetch() {
     # Remove the token header file as soon as it is unused; the trap is the
     # backstop for a kill in between.
     [ ${#auth[@]} -eq 0 ] || rm -f "${auth[1]#@}"
+    if [ "$status" -ne 0 ]; then
+        echo "failed to download ${fetch_label:-file} (curl exit ${status}): ${url}" >&2
+    fi
     return "$status"
 }
 
@@ -124,13 +129,19 @@ retry() {
 # from curl: a retried download would otherwise re-emit the script into a
 # shell that is already executing its first, truncated part. The file is
 # world-readable because the installer runs as the vscode user.
+#
+# download_installer <name> <url>: <name> labels fetch's failure message
+# (a variable assignment scoped to that one call), since `set -e` would
+# otherwise abort without saying which installer failed. fetch itself reports,
+# so it still runs under `set -e` (not inside an `||` list, which would
+# disable it).
 installer_script=""
 download_installer() {
     rm -f "$installer_script"
     tmp_path
     installer_script="$tmp_result"
     chmod a+r "$installer_script"
-    fetch "$1" -o "$installer_script"
+    fetch_label="$1 installer" fetch "$2" -o "$installer_script"
 }
 
 # The installers do their own downloads. prek's comes only from github.com,
@@ -138,22 +149,24 @@ download_installer() {
 # so it never appears in an argument list). uv's tries releases.astral.sh
 # first, a third-party host, so UV_GITHUB_TOKEN is deliberately not set; the
 # Claude installer downloads from claude.ai, not GitHub.
-install_uv() {
-    download_installer "https://releases.astral.sh/github/uv/releases/download/${uv_version}/uv-installer.sh" \
-        && sudo -u vscode env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
+#
+# Each installer script is downloaded once, by `fetch`, which has its own
+# retries; only running it is wrapped in `retry`, for the downloads the
+# installer does itself. Wrapping the download in `retry` too would multiply
+# the two layers of retries (up to 4 x 4 x 6 attempts for one script).
+run_uv_installer() {
+    sudo -u vscode env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
 }
 
 # An empty PREK_GITHUB_TOKEN is the same as unset to the installer (it tests
 # `[ -n "${AUTH_TOKEN:-}" ]`), so a local build sends no header.
-install_prek() {
-    download_installer "https://github.com/j178/prek/releases/download/v${prek_version}/prek-installer.sh" \
-        && PREK_GITHUB_TOKEN="${GITHUB_TOKEN:-}" sudo --preserve-env=PREK_GITHUB_TOKEN -u vscode \
-            env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
+run_prek_installer() {
+    PREK_GITHUB_TOKEN="${GITHUB_TOKEN:-}" sudo --preserve-env=PREK_GITHUB_TOKEN -u vscode \
+        env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
 }
 
-install_claude() {
-    download_installer https://claude.ai/install.sh \
-        && sudo -u vscode env HOME=/home/vscode bash "$installer_script" "$claude_code_version"
+run_claude_installer() {
+    sudo -u vscode env HOME=/home/vscode bash "$installer_script" "$claude_code_version"
 }
 
 # xz-utils: Node's own release tarballs are .tar.xz.
@@ -162,7 +175,8 @@ apt-get install -y --no-install-recommends xz-utils
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 
-retry install_uv
+download_installer uv "https://releases.astral.sh/github/uv/releases/download/${uv_version}/uv-installer.sh"
+retry run_uv_installer
 ln -s /home/vscode/.local/bin/uv /usr/local/bin/uv
 ln -s /home/vscode/.local/bin/uvx /usr/local/bin/uvx
 
@@ -212,10 +226,12 @@ ln -s "/usr/local/lib/nodejs/${node_asset}/bin/npx" /usr/local/bin/npx
 # project dependency of any particular language's package manager -- every
 # instance, regardless of language, is expected to run
 # `prek run --all-files --hook-stage manual` (see checks.yml).
-retry install_prek
+download_installer prek "https://github.com/j178/prek/releases/download/v${prek_version}/prek-installer.sh"
+retry run_prek_installer
 ln -s /home/vscode/.local/bin/prek /usr/local/bin/prek
 
-retry install_claude
+download_installer claude https://claude.ai/install.sh
+retry run_claude_installer
 ln -s /home/vscode/.local/bin/claude /usr/local/bin/claude
 
 # For the snip Claude Code PreToolUse hook -- see .claude/README.md. Not on

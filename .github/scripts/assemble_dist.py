@@ -30,6 +30,10 @@ import sys
 import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # An arch name ends up in a file name (``assets-<arch>.tar``): no separators.
 _ARCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -87,10 +91,8 @@ def _claim(
     leaves[path] = arch
 
 
-def _check(arches: list[str], parts: Path) -> list[Path]:
-    """Validate every leg without extracting anything; return the tarballs in order."""
-    leaves: dict[PurePosixPath, str] = {}  # non-directory entries -> arch
-    dirs: dict[PurePosixPath, str] = {}  # directories (explicit or implied) -> arch
+def _tarballs(arches: list[str], parts: Path) -> list[Path]:
+    """Return ``parts/assets-<arch>.tar`` for every arch; raise when one is missing."""
     tarballs = []
     for arch in arches:
         tarball = parts / f"assets-{arch}.tar"
@@ -98,48 +100,73 @@ def _check(arches: list[str], parts: Path) -> list[Path]:
             msg = f"no release assets uploaded for arch {arch}"
             raise AssembleError(msg)
         tarballs.append(tarball)
-        with tarfile.open(tarball) as tar:
-            for m in tar.getmembers():
-                path = PurePosixPath(m.name)
-                if str(path) == ".":
-                    continue
-                if path.is_absolute() or ".." in path.parts:
-                    msg = f"{m.name} (arch {arch}) escapes dist/"
-                    raise AssembleError(msg)
-                _claim(path, is_dir=m.isdir(), arch=arch, leaves=leaves, dirs=dirs)
     return tarballs
+
+
+def _checked_members(
+    tar: tarfile.TarFile,
+    arch: str,
+    leaves: dict[PurePosixPath, str],
+    dirs: dict[PurePosixPath, str],
+) -> Iterator[tarfile.TarInfo]:
+    """Yield ``tar``'s members to extract, claiming each path for ``arch`` first.
+
+    One pass over the tarball does both the collision check and (driven by
+    ``extractall``) the extraction. ``extractall`` still applies directory
+    attributes once at the end, which extracting member by member would not.
+    """
+    for m in tar:
+        path = PurePosixPath(m.name)
+        if str(path) == ".":
+            yield m
+            continue
+        if path.is_absolute() or ".." in path.parts:
+            msg = f"{m.name} (arch {arch}) escapes dist/"
+            raise AssembleError(msg)
+        _claim(path, is_dir=m.isdir(), arch=arch, leaves=leaves, dirs=dirs)
+        yield m
 
 
 def assemble(arches: list[str], parts: Path, dist: Path) -> None:
     """Extract ``parts/assets-<arch>.tar`` for every arch into ``dist``.
 
-    Every leg is validated first, then extracted into a temporary directory
-    beside ``dist`` that is renamed to ``dist`` at the end, so a failure
-    leaves ``dist`` untouched.
+    Each tarball is read once, checking every path for a collision with the
+    other legs as it is extracted into a temporary directory beside ``dist``
+    that is renamed to ``dist`` at the end, so a failure leaves ``dist``
+    untouched.
     """
     if not hasattr(tarfile, "data_filter"):
         msg = "this Python's tarfile has no extraction filters; Python 3.12+ is required"
         raise AssembleError(msg)
-    tarballs = _check(_validate_arches(arches), parts)
+    names = _validate_arches(arches)
+    tarballs = _tarballs(names, parts)
     if dist.exists() and (not dist.is_dir() or any(dist.iterdir())):
         msg = f"{dist} already exists and is not an empty directory"
         raise AssembleError(msg)
     dist.parent.mkdir(parents=True, exist_ok=True)
+    leaves: dict[PurePosixPath, str] = {}  # non-directory entries -> arch
+    dirs: dict[PurePosixPath, str] = {}  # directories (explicit or implied) -> arch
     # Same filesystem as dist, so the final rename is atomic.
     stage = Path(tempfile.mkdtemp(prefix=f".{dist.name}.", dir=dist.parent))
     try:
-        stage.chmod(0o755)  # mkdtemp creates 0700; dist/ is read by other users
-        for tarball in tarballs:
+        for arch, tarball in zip(names, tarballs, strict=True):
             with tarfile.open(tarball) as tar:
-                # Paths were checked above and the "data" filter refuses unsafe links.
+                # The "data" filter refuses unsafe links and absolute paths.
                 try:
-                    tar.extractall(stage, filter="data")
+                    tar.extractall(
+                        stage, members=_checked_members(tar, arch, leaves, dirs), filter="data"
+                    )
                 except tarfile.FilterError as exc:
                     msg = (
                         f"{tarball.name}: {exc}; release assets may only contain regular "
                         "files, directories and links that stay inside dist/"
                     )
                     raise AssembleError(msg) from exc
+        # mkdtemp creates 0700, and dist/ must be readable to the other user the
+        # devcontainer runs as. The "data" filter sets every directory's mode to
+        # None, so a "." member (`tar -C dist -cf x.tar .`) never restricts the
+        # stage while later legs extract into it; the chmod can wait until the end.
+        stage.chmod(0o755)
         if dist.exists():
             dist.rmdir()
         stage.rename(dist)

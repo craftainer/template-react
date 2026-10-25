@@ -7,9 +7,11 @@
 # Writes `found=true` or `found=false` to $GITHUB_OUTPUT (stdout if unset).
 # Asks the API for the artifact by name rather than listing the run's
 # artifacts, which returns only the first 30 unless paginated. A missing
-# artifact is expected (the worker's jobs were all skipped) and an expired one
-# is logged as a notice; any API failure fails the script (set -e), so a real
-# error is never mistaken for "no result".
+# artifact is expected (the worker's jobs were all skipped). An expired one
+# is not: the worker did produce a result (the artifacts live for one day), so
+# nothing being applied would be silent data loss behind a green job. It fails
+# the script, as does any API failure (set -e) or an empty or unrecognised
+# response, so a real error is never mistaken for "no result".
 set -euo pipefail
 
 repo="${1:?usage: find_moderation_result.sh <owner/repo> <run-id>}"
@@ -22,8 +24,8 @@ state=$(gh api "repos/${repo}/actions/runs/${run_id}/artifacts?name=moderation-r
 case "$state" in
   found) found=true ;;
   expired)
-    found=false
-    echo "::notice::The moderation-result artifact of run ${run_id} has expired; nothing to apply."
+    echo "::error::The moderation-result artifact of run ${run_id} has expired before it was applied; re-run the worker workflow." >&2
+    exit 1
     ;;
   missing)
     found=false

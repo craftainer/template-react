@@ -145,13 +145,26 @@ jobs:
             > /tmp/apply-summary.json
           rc=$?
           set -e
-          # Exit codes: 0 clean, 1 merge conflicts, 2 error. An error must
-          # fail the job here, before the sync state is advanced.
-          if [ "$rc" -gt 1 ]; then
-            echo "::error::template_sync.py apply failed (exit $rc); not advancing the sync state."
-            exit "$rc"
+          # Exit codes: 0 clean, 1 merge conflicts, 2 error. A crash before
+          # apply's own error handler (an import-time SyntaxError) also exits
+          # 1, so check-apply trusts 0 or 1 only when the summary agrees. It
+          # fails the job here, before the sync state is advanced, and the
+          # summary is printed as valid only once it has agreed.
+          check_rc=0
+          python3 template_sync.py check-apply --exit-code "$rc" \
+              --summary /tmp/apply-summary.json >> "$GITHUB_OUTPUT" || check_rc=$?
+          if [ "$rc" -gt 1 ] || [ "$check_rc" -ne 0 ]; then
+            echo "::group::apply stdout (not validated)"
+            cat /tmp/apply-summary.json || true
+            echo "::endgroup::"
+            echo "::error::template_sync.py apply failed (exit $rc, check-apply exit $check_rc); not advancing the sync state."
+            # Keep apply's own status when it is an error (2, or e.g. 137 for
+            # a kill); a 0 or 1 that check-apply rejected is an error too.
+            if [ "$rc" -gt 1 ]; then
+              exit "$rc"
+            fi
+            exit "$check_rc"
           fi
-          echo "conflicts=$rc" >> "$GITHUB_OUTPUT"
           cat /tmp/apply-summary.json
 
       - name: Update sync state

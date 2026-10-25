@@ -12,7 +12,9 @@
 # `verify-published`, both in jobs that exist only for instances that opt in.
 # So a partial registry failure never withholds the GitHub release; a re-run
 # of just the failed jobs finishes publishing (the `release` job skips an
-# existing release).
+# existing release). A GitHub release can therefore exist for a version whose
+# `publish-packages` failed: re-run the failed jobs to finish publishing, and
+# do not delete the release.
 name: Release
 
 on:
@@ -295,39 +297,9 @@ jobs:
           # run's `dist/` (built from a different commit) under that version
           # while the release carries the other commit's assets. Fail instead.
           if [ "$published" = "true" ]; then
-            # Fail closed: a published release always has its tag (publishing
-            # creates it), and a first release has no published release yet,
-            # so never reaches this check. An unresolvable tag here is an API
-            # error or a deleted tag, and either way the check cannot vouch
-            # for this run's commit.
-            # Up to three attempts, but only for a transient failure (HTTP
-            # 5xx, 408, 429 or a rate limit, or no HTTP status at all: a network
-            # error). Any
-            # other status is permanent, so retrying only delays the failure.
-            # A missing tag answers 404, or 422 "No commit found for SHA".
-            tag_sha=
-            for attempt in 1 2 3; do
-              if tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${RELEASE_TAG}" --jq .sha 2>"$RUNNER_TEMP/tag-lookup.err"); then
-                break
-              fi
-              tag_sha=
-              cat "$RUNNER_TEMP/tag-lookup.err" >&2
-              if grep -Eq '\(HTTP [0-9]{3}\)' "$RUNNER_TEMP/tag-lookup.err" && ! grep -Eqi '\(HTTP (5[0-9]{2}|408|429)\)|rate limit' "$RUNNER_TEMP/tag-lookup.err"; then
-                break
-              fi
-              [ "$attempt" -eq 3 ] || sleep $((attempt * 5))
-            done
-            if [ -z "$tag_sha" ]; then
-              if grep -Eq '\(HTTP (404|422)\)' "$RUNNER_TEMP/tag-lookup.err"; then
-                echo "::error::Release $RELEASE_TAG is published but its tag does not exist (HTTP 404 or 422), so it cannot be checked against $GITHUB_SHA. Re-running will not help: restore the tag, or delete the release and run the workflow again."
-              else
-                echo "::error::Could not resolve tag $RELEASE_TAG to a commit, so cannot check it against $GITHUB_SHA; not publishing under an unverified tag. Re-run the job if this was a transient API error; otherwise see the error above."
-              fi
-              exit 1
-            elif [ "$tag_sha" != "$GITHUB_SHA" ]; then
-              echo "::error::Release $RELEASE_TAG already exists at commit $tag_sha, but this run built $GITHUB_SHA; not publishing it under the same version. Run the workflow again to get the next version."
-              exit 1
-            fi
+            # Fails closed (see the script): a published release always has
+            # its tag, so one that cannot be resolved cannot be vouched for.
+            .github/scripts/verify_release_tag.sh "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$GITHUB_SHA"
           fi
           echo "published=$published" >> "$GITHUB_OUTPUT"
 

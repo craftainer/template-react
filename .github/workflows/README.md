@@ -40,9 +40,17 @@
   template's latest tagged release per the manifest's tiers and opens a
   PR — never a direct push, never auto-merged.
   `template_sync.py apply` exits 0 (clean), 1 (merge conflicts, still
-  opens the PR) or 2 (error, e.g. `git merge-file` failing on a binary
-  file, or an unreadable manifest): every failure other than conflicts
-  exits 2, and on 2 the job fails before the sync state advances.
+  opens the PR) or 2 (error, e.g. an unreadable manifest or `git
+  merge-file` failing): every failure other than conflicts exits 2. A
+  binary merge-tier file the instance changed cannot be merged, so it is
+  reported as a conflict and the instance's copy is left as it is. A crash before
+  `apply`'s own handler (an import-time `SyntaxError`) also exits 1, so
+  the job runs `template_sync.py check-apply`, which accepts a 0 or 1
+  only when the summary `apply` wrote agrees with it; anything else
+  fails the job before the sync state advances. The job then exits with
+  `apply`'s own status when that is 2 or higher (so the log and the step's
+  exit code tell an error from conflicts) and the summary is printed as valid
+  only after that check.
 
 Every workflow's `runs-on` defaults to `ubuntu-24.04` but can be
 overridden with the `CI_RUNNER` repository/organization variable —
@@ -121,8 +129,10 @@ which case no `moderation-result` artifact exists;
 workflows first look the artifact up by name through the run's artifacts API
 (`../scripts/find_moderation_result.sh`; the run's other artifacts are not
 listed, so more than 30 cannot hide it) and skip the download/apply steps
-when it is absent or expired (the latter logs a notice). The download itself stays
-strict, so real failures still fail the job.
+when it is absent. An expired artifact (the worker keeps it one day) fails
+the job: a result was produced and lost, so a green apply job would hide
+that nothing was applied. The download itself stays strict, so real
+failures still fail the job.
 
 Activating this in a given repo/fork takes two one-time steps, neither
 of which is itself a workflow: provisioning a dedicated Anthropic

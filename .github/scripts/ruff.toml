@@ -1,0 +1,27 @@
+# Ruff config for the upstream-owned scripts in this directory.
+#
+# The workflows (template-sync.yml, release.yml, moderate-*) run these
+# scripts with the runner's system `python3`, without setup-python. On
+# ubuntu-24.04 that is Python 3.12 (actions/runner-images,
+# Ubuntu2404-Readme.md, image 20261023: python3 3.12.3). An instance's
+# ruff, though, takes `target-version` from the instance's own
+# pyproject.toml (py314 in the Python templates), and `ruff format` then
+# rewrites `except (A, B):` into the PEP 758 form `except A, B:`, which is
+# a SyntaxError before Python 3.14. Ruff uses the closest config file to
+# each file and does not merge parents
+# (https://docs.astral.sh/ruff/configuration/#config-file-discovery), so
+# this file pins how every checkout's ruff treats these files, regardless
+# of the instance's pyproject.toml. Base owns it (replace tier, via the
+# `.github/scripts/` entry in ../template-sync-manifest.yml).
+#
+# Keep `target-version` equal to the runner's `python3` minor version.
+# test_script_syntax.py parses every script against that version.
+
+target-version = "py312"
+line-length = 100
+
+[lint]
+# Ruff's long-standing defaults, spelled out so a newer ruff that widens
+# its default rule set does not start flagging these scripts. Base itself
+# does not run ruff; this keeps `ruff check` quiet in every checkout.
+select = ["E4", "E7", "E9", "F"]
