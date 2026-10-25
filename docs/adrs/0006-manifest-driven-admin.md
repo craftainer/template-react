@@ -76,9 +76,13 @@ Four facts about the libraries and the app shaped the wiring:
   (`defaultUrlAdapter`, i.e. `window.location` and `history`), the same
   adapter the lists use for filter, sort and paging, so deep links and the back
   button work. Each list prefixes its own parameters with the resource name.
-- **Dependencies.** `@craftainer/crud-sdk` 0.1.0, `@craftainer/crud-views` 0.2.0,
+- **Dependencies.** `@craftainer/crud-sdk` 0.4.0, `@craftainer/crud-views` 0.4.0,
   plus `@mui/x-data-grid` and `@mui/x-charts` 9.16.0 (crud-views' peers; MIT
-  tier only). The `@craftainer/*` scope is excluded from pnpm's
+  tier only). The provider's query scope is the OIDC `sub` while
+  signed in (stable across token refresh; `AdminPage` also remounts per `sub`)
+  and the SDK's `client.namespace()` (`"anon"`) otherwise, because crud-views
+  resolves the namespace once per client and does not watch the token. The
+  `@craftainer/*` scope is excluded from pnpm's
   `minimumReleaseAge` (user decision, 2026-10-24): we release these ourselves
   and consume them right away.
 - **Tests.** Unit tests cover the `/api` prefixing, discovery, the cached ETag
