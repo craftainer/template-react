@@ -20,9 +20,10 @@ gh_version=$7
 # fail with HTTP 429. Two measures, neither of which changes what is
 # installed:
 #
-# - fetch: curl with bounded retries (--retry-all-errors; curl honours a
-#   server's Retry-After and otherwise backs off exponentially: 1s, 2s,
-#   4s, ...) and, for github.com / api.github.com URLs only, an
+# - fetch: curl with bounded retries (--retry: transient failures only --
+#   timeouts and HTTP 408/429/500/502/503/504; curl honours a server's
+#   Retry-After and otherwise backs off exponentially: 1s, 2s, 4s, ...)
+#   and, for github.com / api.github.com URLs only, an
 #   Authorization header when GITHUB_TOKEN is set. GITHUB_TOKEN arrives as
 #   a BuildKit secret (the Dockerfile's `RUN --mount=type=secret,
 #   id=github_token,env=GITHUB_TOKEN`), never a build arg, so it is not
@@ -34,27 +35,74 @@ gh_version=$7
 #   objects.githubusercontent.com), so the token never reaches another host. That needs curl >= 7.58
 #   (older versions forwarded it, CVE-2018-1000007).
 #   Without a token (a local build) nothing changes.
-# - retry: reruns a whole step (an installer piped into sh) a bounded
-#   number of times with doubling delays, for installers that do their own
-#   downloads and so can't be wrapped by fetch.
+#   `--retry-all-errors` is deliberately absent: with `-f` it also retried
+#   permanent 404/403 responses, and multiplied with `retry` below.
+# - cleanup: every temp file or directory is registered with `tmp_path`
+#   and removed by one EXIT/INT/TERM trap, so a failed step (set -e), a
+#   failed checksum or a kill never leaves the bearer-token header file or
+#   a download directory behind.
+# - retry: reruns a whole step (download plus running an installer) a
+#   bounded number of times with doubling delays, for installers that do
+#   their own downloads inside the script and so can't be wrapped by fetch.
+cleanup_paths=()
+cleanup() {
+    [ "${#cleanup_paths[@]}" -eq 0 ] || rm -rf "${cleanup_paths[@]}" || true
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# tmp_path <mktemp args...>: creates the temp path into $tmp_result and
+# registers it for cleanup. Call it (and `fetch`, which uses it) in the
+# main shell only, never inside $(...), a pipeline or a background job: a
+# subshell's registration is lost.
+tmp_result=""
+tmp_path() {
+    tmp_result="$(mktemp "$@")"
+    cleanup_paths+=("$tmp_result")
+}
+
 fetch() {
     local url=$1
     shift
     # `${auth[@]+...}` below: an empty array is an unbound variable under
     # `set -u` on bash < 4.4.
-    local auth=() header_file=""
+    local auth=()
     if [ -n "${GITHUB_TOKEN:-}" ]; then
         case "$url" in
             https://github.com/* | https://api.github.com/*)
-                header_file="$(mktemp)"
-                printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$header_file"
-                auth=(-H "@${header_file}")
+                tmp_path
+                printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$tmp_result"
+                auth=(-H "@${tmp_result}")
                 ;;
         esac
     fi
-    local status=0
-    curl -fsSL --retry 5 --retry-max-time 60 --retry-all-errors ${auth[@]+"${auth[@]}"} "$@" "$url" || status=$?
-    [ -z "$header_file" ] || rm -f "$header_file"
+    # curl's --retry (+ --retry-connrefused) covers timeouts, refused
+    # connections and HTTP 408/429/5xx; resets and truncated transfers
+    # (exit 18/52/55/56) are retried here, so a permanent HTTP error (-f,
+    # exit 22), DNS or TLS failure still fails at once. Callers must write
+    # to a file (-o): a re-run after a partial transfer would otherwise
+    # duplicate stdout.
+    local attempt=1 status=0
+    while :; do
+        status=0
+        curl -fsSL --retry 5 --retry-max-time 60 --retry-connrefused \
+            ${auth[@]+"${auth[@]}"} "$@" "$url" || status=$?
+        case "$status" in
+            18 | 52 | 55 | 56)
+                if [ "$attempt" -lt 4 ]; then
+                    echo "curl exit $status; retrying ($attempt/3): $url" >&2
+                    sleep $((attempt * 2))
+                    attempt=$((attempt + 1))
+                    continue
+                fi
+                ;;
+        esac
+        break
+    done
+    # Remove the token header file as soon as it is unused; the trap is the
+    # backstop for a kill in between.
+    [ ${#auth[@]} -eq 0 ] || rm -f "${auth[1]#@}"
     return "$status"
 }
 
@@ -77,22 +125,30 @@ retry() {
 # shell that is already executing its first, truncated part. The file is
 # world-readable because the installer runs as the vscode user.
 installer_script=""
-trap 'rm -f "$installer_script"' EXIT
 download_installer() {
     rm -f "$installer_script"
-    installer_script="$(mktemp)"
+    tmp_path
+    installer_script="$tmp_result"
     chmod a+r "$installer_script"
     fetch "$1" -o "$installer_script"
 }
 
+# The installers do their own downloads. prek's comes only from github.com,
+# so it gets the token (PREK_GITHUB_TOKEN, passed through the environment
+# so it never appears in an argument list). uv's tries releases.astral.sh
+# first, a third-party host, so UV_GITHUB_TOKEN is deliberately not set; the
+# Claude installer downloads from claude.ai, not GitHub.
 install_uv() {
     download_installer "https://releases.astral.sh/github/uv/releases/download/${uv_version}/uv-installer.sh" \
         && sudo -u vscode env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
 }
 
+# An empty PREK_GITHUB_TOKEN is the same as unset to the installer (it tests
+# `[ -n "${AUTH_TOKEN:-}" ]`), so a local build sends no header.
 install_prek() {
     download_installer "https://github.com/j178/prek/releases/download/v${prek_version}/prek-installer.sh" \
-        && sudo -u vscode env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
+        && PREK_GITHUB_TOKEN="${GITHUB_TOKEN:-}" sudo --preserve-env=PREK_GITHUB_TOKEN -u vscode \
+            env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
 }
 
 install_claude() {
@@ -140,7 +196,8 @@ case "$node_dpkg_arch" in
         ;;
 esac
 node_asset="node-v${node_version}-linux-${node_arch}"
-node_tmpdir="$(mktemp -d)"
+tmp_path -d
+node_tmpdir="$tmp_result"
 fetch "https://nodejs.org/dist/v${node_version}/${node_asset}.tar.xz" -o "${node_tmpdir}/${node_asset}.tar.xz"
 fetch "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt" -o "${node_tmpdir}/SHASUMS256.txt"
 (cd "$node_tmpdir" && grep " ${node_asset}.tar.xz\$" SHASUMS256.txt | sha256sum -c -)
@@ -167,7 +224,8 @@ ln -s /home/vscode/.local/bin/claude /usr/local/bin/claude
 # curl-pipe-to-sh installer.
 snip_arch="$(dpkg --print-architecture)"
 snip_asset="snip_${snip_version}_linux_${snip_arch}.tar.gz"
-snip_tmpdir="$(mktemp -d)"
+tmp_path -d
+snip_tmpdir="$tmp_result"
 sudo chmod a+rwx "$snip_tmpdir"
 fetch "https://github.com/edouard-claude/snip/releases/download/v${snip_version}/${snip_asset}" -o "${snip_tmpdir}/${snip_asset}"
 fetch "https://github.com/edouard-claude/snip/releases/download/v${snip_version}/checksums.txt" -o "${snip_tmpdir}/checksums.txt"
@@ -185,7 +243,8 @@ ln -s /home/vscode/.local/bin/snip /usr/local/bin/snip
 # rebuild doesn't require `gh auth login` again.
 gh_arch="$(dpkg --print-architecture)"
 gh_asset="gh_${gh_version}_linux_${gh_arch}"
-gh_tmpdir="$(mktemp -d)"
+tmp_path -d
+gh_tmpdir="$tmp_result"
 fetch "https://github.com/cli/cli/releases/download/v${gh_version}/${gh_asset}.tar.gz" -o "${gh_tmpdir}/${gh_asset}.tar.gz"
 fetch "https://github.com/cli/cli/releases/download/v${gh_version}/gh_${gh_version}_checksums.txt" -o "${gh_tmpdir}/checksums.txt"
 (cd "$gh_tmpdir" && grep " ${gh_asset}.tar.gz\$" checksums.txt | sha256sum -c -)

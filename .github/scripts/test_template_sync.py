@@ -50,8 +50,8 @@ class ApplyReplaceExecutableBitTest(unittest.TestCase):
         return template_sync.apply_replace(self.old, self.new, self.instance, {path})
 
     def test_same_content_gains_executable_bit(self) -> None:
-        # The v1.8.0 bug: the template fixed 644 -> 755 with no content change.
         """Same content, template executable: the instance copy becomes executable."""
+        # Regression: a template fix of 644 -> 755 with no content change.
         write(self.old / "s.sh", b"#!/bin/sh\n", 0o644)
         write(self.new / "s.sh", b"#!/bin/sh\n", 0o755)
         write(self.instance / "s.sh", b"#!/bin/sh\n", 0o644)
@@ -88,6 +88,113 @@ class ApplyReplaceExecutableBitTest(unittest.TestCase):
         self.instance.mkdir()
         self.assertEqual(self.apply("s.sh")["updated"], ["s.sh"])
         self.assertTrue(is_exec(self.instance / "s.sh"))
+
+    def test_symlinked_destination_is_not_chmodded_through(self) -> None:
+        """A symlinked destination is left alone: chmod would change its target."""
+        write(self.old / "s.sh", b"x\n", 0o644)
+        write(self.new / "s.sh", b"x\n", 0o755)
+        target = self.instance / "target.sh"
+        write(target, b"x\n", 0o644)
+        (self.instance / "s.sh").symlink_to(target)
+        self.assertEqual(self.apply("s.sh"), {"updated": [], "removed": []})
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
+
+    def test_symlinked_destination_is_not_overwritten_through(self) -> None:
+        """Changed content never writes through a symlinked destination."""
+        write(self.old / "s.sh", b"a\n", 0o644)
+        write(self.new / "s.sh", b"b\n", 0o644)
+        target = self.instance / "target.sh"
+        write(target, b"a\n", 0o644)
+        (self.instance / "s.sh").symlink_to(target)
+        self.assertEqual(self.apply("s.sh"), {"updated": [], "removed": []})
+        self.assertEqual(target.read_bytes(), b"a\n")
+
+
+class TierPathsGlobTest(unittest.TestCase):
+    """``template_sync.tier_paths`` expands glob entries in every tier."""
+
+    def setUp(self) -> None:
+        """Create a template checkout with files for each tier."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        for rel in (
+            "scripts/release-a.sh",
+            "scripts/release-b.sh",
+            "scripts/other.sh",
+            "docs/adrs/0001-x.md",
+            "docs/adrs/README.md",
+            "cfg/one.json",
+            "cfg/sub/two.json",
+            ".git/config",
+        ):
+            write(self.root / rel, b"x\n", 0o644)
+
+    def paths(self, tier: str, patterns: list[str]) -> set[str]:
+        """Return ``tier_paths`` for a manifest holding ``patterns`` in ``tier``."""
+        tiers: dict[str, list[str]] = {"replace": [], "ignore": [], "merge": []}
+        tiers[tier] = patterns
+        return template_sync.tier_paths(self.root, tiers, tier)
+
+    def test_glob_in_each_tier(self) -> None:
+        """A glob entry expands to its files whichever tier it is in."""
+        for tier in ("replace", "merge", "ignore"):
+            self.assertEqual(
+                self.paths(tier, ["scripts/release-*.sh"]),
+                {"scripts/release-a.sh", "scripts/release-b.sh"},
+                tier,
+            )
+
+    def test_star_spans_directories_like_the_manifest(self) -> None:
+        """``*`` crosses ``/`` exactly as ``template_sync_manifest.matches`` does."""
+        self.assertEqual(
+            self.paths("replace", ["cfg/*.json"]), {"cfg/one.json", "cfg/sub/two.json"}
+        )
+
+    def test_bracket_glob(self) -> None:
+        """Character classes alongside ``*`` work (``docs/adrs/[0-9]*.md``)."""
+        self.assertEqual(self.paths("merge", ["docs/adrs/[0-9]*.md"]), {"docs/adrs/0001-x.md"})
+
+    def test_glob_matching_nothing(self) -> None:
+        """A glob that matches nothing contributes no paths and does not fail."""
+        self.assertEqual(self.paths("replace", ["scripts/nope-*.sh"]), set())
+
+    def test_glob_never_reaches_into_dot_git(self) -> None:
+        """``.git`` is never expanded into."""
+        self.assertEqual(self.paths("replace", ["*config"]), set())
+
+    def test_glob_overlapping_another_tier_is_excluded(self) -> None:
+        """A path also matched by another tier is not returned (existing rule)."""
+        tiers = {"replace": ["scripts/*.sh"], "ignore": ["scripts/other.sh"], "merge": []}
+        self.assertEqual(
+            template_sync.tier_paths(self.root, tiers, "replace"),
+            {"scripts/release-a.sh", "scripts/release-b.sh"},
+        )
+
+    def test_apply_syncs_glob_entries_end_to_end(self) -> None:
+        """``apply`` copies a replace-tier glob match into the instance."""
+        old, instance = self.root / "old", self.root / "instance"
+        old.mkdir()
+        instance.mkdir()
+        manifest = self.root / "manifest.yml"
+        manifest.write_text("replace:\n  - scripts/release-*.sh\n")
+        parser = template_sync.build_parser()
+        args = parser.parse_args(
+            [
+                "apply",
+                "--manifest",
+                str(manifest),
+                "--old-ref",
+                str(old),
+                "--new-ref",
+                str(self.root),
+                "--instance-root",
+                str(instance),
+            ]
+        )
+        self.assertEqual(args.func(args), 0)
+        self.assertTrue((instance / "scripts/release-a.sh").is_file())
+        self.assertFalse((instance / "scripts/other.sh").exists())
 
 
 _SCRIPT_PATH_RE = re.compile(r"(?<![\w.-])(\.github/scripts/[\w.-]+\.sh)\b")
@@ -165,8 +272,8 @@ class DirectlyInvokedScriptsAreExecutableTest(unittest.TestCase):
             self.assertEqual(directly_invoked_scripts(text), set(), text)
 
     def test_claude_hook_is_executable(self) -> None:
-        # .claude/settings.json runs it directly as a hook command.
         """The Claude hook script is executable."""
+        # .claude/settings.json runs it directly as a hook command.
         self.assertTrue(is_exec(REPO_ROOT / ".claude" / "hooks" / "self-check.sh"))
 
 
@@ -202,6 +309,16 @@ class KeepsDefaultPublishPackagesTest(unittest.TestCase):
                 "# we don't implement publish-packages yet\npublish-packages:\n\tnpm publish\n"
             )
         )
+
+
+class MakefileDefinesPublishPackagesTest(unittest.TestCase):
+    """Every instance defines `publish-packages` (base's default or its own)."""
+
+    def test_target_is_defined(self) -> None:
+        """A Makefile without the target fails the release with "No rule to make target"."""
+        makefile = REPO_ROOT / "Makefile"
+        self.assertTrue(makefile.is_file(), "no Makefile at the repository root")
+        self.assertRegex(makefile.read_text(), r"(?m)^publish-packages:")
 
 
 @unittest.skipUnless(shutil.which("make"), "make not installed")

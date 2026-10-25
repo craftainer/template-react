@@ -76,6 +76,7 @@ jobs:
             "Read,Grep,Glob,Write,Edit,Bash(git *),Bash(gh issue *),Bash(gh repo view:*),Bash(prek run *)${{ vars.MODERATION_EXTRA_TOOLS && format(',{0}', vars.MODERATION_EXTRA_TOOLS) || '' }}"
             15 120
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
 

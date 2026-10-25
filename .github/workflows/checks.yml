@@ -78,7 +78,11 @@ jobs:
       # instance adds through compose.instance.yml's `include:`.
       - name: Tear down devcontainer stack
         if: always()
+        # COMPOSE_PROJECT_NAME is unset when an earlier step failed before
+        # "Set compose project name"; then no stack was started either.
         run: |
-          docker compose \
-            -p ${{ env.COMPOSE_PROJECT_NAME }} \
-            down --volumes --remove-orphans
+          if [ -z "${COMPOSE_PROJECT_NAME:-}" ]; then
+            echo "No compose project name set; nothing to tear down."
+            exit 0
+          fi
+          docker compose -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans

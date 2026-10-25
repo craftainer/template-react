@@ -56,9 +56,9 @@ lander per repo at a time. Then start the next ready item.
 **A lander's report:** `done` means landed: PR, merge commit (where it may
 merge), CI, review rounds with dispositions, the lane tail and NOTES.
 Record it in the plan's Status and start whatever it unblocks. A red lane
-is the lander's to handle: it reverts the merge and resumes the owning
-executor with the failing output. Treat what it escalates like an
-executor's escalation below, with its evidence in hand.
+is the lander's to handle: it fixes what it can inside the item's write
+set and otherwise reverts the merge and escalates. Treat what it escalates like an executor's
+escalation below, with its evidence in hand.
 
 **`escalate`** (executor or lander): research before deciding:
 
@@ -95,9 +95,9 @@ they share resources; you sequence them through the queue:
 - **Verification:** after each merge into a repo's integration branch,
   the repo's full suite including integration and e2e. Only one lander at
   a time runs suites that share the devcontainer's services or fixed
-  ports, across all repos. On red the lander reverts that merge, sends the
-  failing output to the owning executor and keeps going; it escalates
-  only when the executor can't fix it inside its write set.
+  ports, across all repos. On red the lander fixes it inside the item's write
+  set and re-runs the lane; if it can't, it reverts that merge (keeping
+  the integration branch green) and escalates.
 - **Releases**, in the plan's dependency order, by a lander, only where
   the standing approvals allow; every other release is a gate you raise.
 - **Measurements**, only in quiet windows with no other agents running.

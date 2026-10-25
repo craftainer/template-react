@@ -20,9 +20,20 @@
   the instance working tree, and reads/writes
   `../template-sync-state.json`.
 - `test_template_sync.py` — stdlib `unittest` tests for
-  `template_sync.py`'s replace tier (including the executable bit) and a
+  `template_sync.py`'s replace tier (including the executable bit and
+  symlinked destinations), glob expansion of manifest entries, and a
   check that every script a workflow runs directly is executable; backs
   the `scripts-tests` prek hook.
+- `assemble_dist.py` / `has_make_target.sh` — helpers of
+  `../workflows/release.yml`: merge the per-arch `dist/` tarballs
+  (validating ARCHES_JSON, rejecting any path two arches both produce,
+  and extracting into a temp dir renamed over `dist/` only on success), and
+  tell whether the Makefile defines a target without running it (the
+  `verify-published` probe; the name is matched literally, and a target only
+  listed in `.PHONY` counts as defined since `make` runs it as a no-op).
+  `test_release_scripts.py` tests both; `scripts-tests` runs it. Keep
+  `assemble_dist.py` clean under `ruff check --select ALL` (bar `COM812` and
+  `CPY001`), so instances that select `PL` etc. need no per-file ignores.
 - `run_claude.sh` — invokes `claude -p` for one issue-moderation stage
   inside the devcontainer; shared by all four Claude-invoking
   `../workflows/moderate-*.yml` jobs. See `../workflows/README.md`'s
