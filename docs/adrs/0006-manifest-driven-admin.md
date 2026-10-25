@@ -76,12 +76,17 @@ Four facts about the libraries and the app shaped the wiring:
   (`defaultUrlAdapter`, i.e. `window.location` and `history`), the same
   adapter the lists use for filter, sort and paging, so deep links and the back
   button work. Each list prefixes its own parameters with the resource name.
-- **Dependencies.** `@craftainer/crud-sdk` 0.4.0, `@craftainer/crud-views` 0.4.0,
+- **Dependencies.** `@craftainer/crud-sdk` 0.5.0, `@craftainer/crud-views` 0.4.1,
   plus `@mui/x-data-grid` and `@mui/x-charts` 9.16.0 (crud-views' peers; MIT
   tier only). The provider's query scope is the OIDC `sub` while
   signed in (stable across token refresh; `AdminPage` also remounts per `sub`)
   and the SDK's `client.namespace()` (`"anon"`) otherwise, because crud-views
   resolves the namespace once per client and does not watch the token. The
+  SDK 0.5.0 throws `InsecureTransportError` before sending a request that
+  carries a token over plain http to a non-loopback host; the client's base URL
+  is the page's own origin, so this only bites when the app is served over http
+  from a non-loopback host, and `allowInsecureHttp` is deliberately not set.
+  (Written against 0.4.0 and re-checked against 0.5.0 / 0.4.1 on upgrade.) The
   `@craftainer/*` scope is excluded from pnpm's
   `minimumReleaseAge` (user decision, 2026-10-24): we release these ourselves
   and consume them right away.
