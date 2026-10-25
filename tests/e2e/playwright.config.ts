@@ -33,7 +33,7 @@ export default defineConfig({
     // The production bundle, served by `vite preview` (which reuses
     // vite.config.ts's /api proxy): no dependency re-optimisation on a cold
     // start, and the test runs what ships.
-    command: `node_modules/.bin/vite build --logLevel warn && node_modules/.bin/vite preview --config tests/e2e/vite.preview.config.ts --port ${PORT} --strictPort --host 127.0.0.1`,
+    command: `node_modules/.bin/vite build --logLevel warn && node_modules/.bin/vite preview --port ${PORT} --strictPort --host 127.0.0.1`,
     timeout: 600_000,
     cwd: "../..",
     url: `http://127.0.0.1:${PORT}`,

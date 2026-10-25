@@ -9,7 +9,7 @@ real browser against a running `template-fastapi` and its Keycloak.
   `E2E_API_PROXY_TARGET` (default `http://localhost:8000`). Keycloak's host
   name is resolved on the host and handed to the container; the browser signs
   in through its real login form as the dev realm's `maintainer`.
-- `admin.e2e.ts` — the journey: sign in, create, conditional edit, a 412 after
+- `admin.e2e.ts` — the journey: sign in, create, inline and form edits (both conditional), a 412 after
   an out-of-band change, archive and the trash, statistics.
 - `playwright.config.ts` — config; `*.e2e.ts` (not `*.spec.ts`, which Vitest
   would pick up).

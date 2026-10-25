@@ -2,7 +2,7 @@
 // gets a records table, a form, a detail page and -- only where the manifest's
 // capabilities allow it -- statistics, predictions, revisions and a trash.
 // Nothing here knows the Hero model; see docs/adrs/0006-manifest-driven-admin.md.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
 import Alert from "@mui/material/Alert";
@@ -30,17 +30,8 @@ import { useAuth } from "react-oidc-context";
 import { CrudApiProvider } from "../api/CrudApi";
 import { useCrudApi } from "../api/crudApiContext";
 import { mayDo, rolesFromToken } from "../api/roles";
-import { etagGetter, latestResources } from "../api/sdk";
+import { etagGetter, latestResources, rowEtagGetter } from "../api/sdk";
 import { useUrlParams } from "./useUrlParams";
-
-/**
- * Edit cells in the table. Off until crud-views 0.2.0 (item VW5): the list
- * endpoint returns no ETags, so an inline edit would be an unconditional
- * PATCH, and 0.1.0's `ifMatch` cannot ask the SDK cache (async) for one. With
- * 0.2.0, pass `ifMatch={rowEtag}` where `rowEtag` fetches the row by id once
- * and returns `etagGetter(api, ready.resource)(id)`, then set this to true.
- */
-const INLINE_EDIT = false;
 
 /** The signed-in caller's roles from the access token, `null` when unreadable. */
 function useCallerRoles() {
@@ -50,6 +41,37 @@ function useCallerRoles() {
   const clientId = (auth.settings as { client_id?: string } | undefined)
     ?.client_id;
   return rolesFromToken(auth.user?.access_token, clientId ?? "");
+}
+
+/**
+ * Opening a record on a click and editing a cell on a double click share the
+ * same gesture, so the open waits a moment and a double click or an edit in
+ * progress cancels it.
+ */
+const OPEN_DELAY_MS = 300;
+
+function useOpenOnClick(open: (id: string) => void) {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const editing = useRef(false);
+  const cancel = () => clearTimeout(timer.current);
+  useEffect(() => cancel, []);
+  return {
+    click(id: string) {
+      cancel();
+      if (editing.current) return;
+      timer.current = setTimeout(() => open(id), OPEN_DELAY_MS);
+    },
+    gridProps: {
+      onCellDoubleClick: cancel,
+      onCellEditStart: () => {
+        editing.current = true;
+        cancel();
+      },
+      onCellEditStop: () => {
+        editing.current = false;
+      },
+    },
+  };
 }
 
 type View = "records" | "stats" | "predictions" | "trash";
@@ -163,6 +185,12 @@ function ResourceOverview({
   const { params, update } = useUrlParams(urlAdapter);
   const [creating, setCreating] = useState(false);
   const roles = useCallerRoles();
+  const api = useCrudApi();
+  const rowEtag = useMemo(
+    () => rowEtagGetter(api, ready.resource),
+    [api, ready],
+  );
+  const opening = useOpenOnClick((id) => update({ id }));
   const views = availableViews(ready);
   const requested = params.get("view") as View | null;
   const view = requested && views.includes(requested) ? requested : "records";
@@ -225,10 +253,12 @@ function ResourceOverview({
               variant="table"
               filters={["quick"]}
               columns={columns}
-              editable={INLINE_EDIT}
+              editable={mayDo(roles, ready.resource.auth.write_roles)}
+              ifMatch={rowEtag}
               urlAdapter={urlAdapter}
               prefix={`${name}_`}
-              onRowClick={(row) => update({ id: String(row.id) })}
+              onRowClick={(row) => opening.click(String(row.id))}
+              gridProps={opening.gridProps}
             />
           )}
           {view === "stats" && <StatsDashboard resource={name} />}

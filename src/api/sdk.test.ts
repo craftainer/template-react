@@ -3,6 +3,7 @@ import { manifestFixture, recordFixtures } from "../pages/adminFixtures";
 import {
   createCrudApi,
   etagGetter,
+  rowEtagGetter,
   latestResources,
   withApiPrefix,
 } from "./sdk";
@@ -142,6 +143,38 @@ describe("createCrudApi", () => {
 
     await heroes.update(1, { name: "Ada" }, { ifMatch: await etag(1) });
     expect(patches).toEqual(['"before"']);
+  });
+});
+
+describe("rowEtagGetter", () => {
+  async function setup() {
+    const { fetchFake } = backend();
+    const api = await createCrudApi({
+      getToken: () => "tok",
+      fetch: fetchFake,
+      origin: ORIGIN,
+    });
+    const heroes = await api.client.resource("heroes");
+    return { api, resource: heroes.resource };
+  }
+
+  it("reads the record once and returns the ETag the server gave", async () => {
+    const { api, resource } = await setup();
+
+    const etag = await rowEtagGetter(api, resource)({ ...recordFixtures[0] });
+
+    expect(etag).toBe('"before"');
+  });
+
+  it("refuses an edit of a row that changed since the list loaded", async () => {
+    const { api, resource } = await setup();
+
+    await expect(
+      rowEtagGetter(
+        api,
+        resource,
+      )({ ...recordFixtures[0], name: "Older name" }),
+    ).rejects.toThrow(/changed since the list loaded/);
   });
 });
 

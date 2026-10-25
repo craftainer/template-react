@@ -65,7 +65,50 @@ test("the admin creates, edits, conflicts and archives a record", async ({
     .fill(name);
   const row = page.getByRole("row", { name: new RegExp(name) });
   await expect(row).toBeVisible();
-  await row.click();
+
+  // Edit the name in the table: a conditional save (If-Match from the SDK's
+  // ETag for the row), and it sticks.
+  const inlineName = `${name} inline`;
+  const inlineSaved = page.waitForResponse(
+    (r) => r.request().method() === "PATCH" && r.status() === 200,
+  );
+  await row.getByRole("gridcell").first().dblclick();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" inline");
+  await page.keyboard.press("Enter");
+  expect((await inlineSaved).request().headers()["if-match"]).toBeTruthy();
+  await expect(
+    page.getByRole("row", { name: new RegExp(inlineName) }),
+  ).toBeVisible();
+
+  // Someone else changes the record after the list loaded: the next inline
+  // edit is refused and sends nothing.
+  const found = await request.get(
+    `${HEROES}?name=${encodeURIComponent(inlineName)}`,
+    { headers: { Authorization: await bearer(request, "maintainer") } },
+  );
+  const rowId = ((await found.json()) as { id: number }[])[0].id;
+  const elsewhere = await request.patch(`${HEROES}?id=${rowId}`, {
+    headers: { Authorization: await bearer(request, "maintainer") },
+    data: { power_level: 7 },
+  });
+  expect(elsewhere.ok()).toBeTruthy();
+  const patches: string[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "PATCH") patches.push(r.url());
+  });
+  await page
+    .getByRole("row", { name: new RegExp(inlineName) })
+    .getByRole("gridcell")
+    .first()
+    .dblclick();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" again");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/changed since the list loaded/)).toBeVisible();
+  expect(patches).toEqual([]);
+
+  await page.getByRole("row", { name: new RegExp(inlineName) }).click();
   await expect(page).toHaveURL(/[?&]id=\d+/);
   const id = new URL(page.url()).searchParams.get("id");
 
@@ -73,7 +116,7 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   const field = page
     .getByRole("form", { name: /edit record/i })
     .getByLabel("Name");
-  await expect(field).toHaveValue(name);
+  await expect(field).toHaveValue(inlineName);
   await field.fill(`${name} edited`);
   const saved = page.waitForResponse(
     (r) => r.request().method() === "PATCH" && r.status() === 200,

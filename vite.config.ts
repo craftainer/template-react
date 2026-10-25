@@ -21,6 +21,12 @@ export default defineConfig(({ mode }) => {
     publicDir: "src/public",
     server: {
       host: true,
+      // The app is same-origin with its /api proxy, so it needs no CORS, and
+      // Vite's default CORS middleware adds `Vary: Origin` to every response
+      // (proxied ones too), which makes @craftainer/crud-sdk's cache refuse
+      // to store records -- no ETag, so no conditional save. `preview.cors`
+      // follows this. See docs/adrs/0006-manifest-driven-admin.md.
+      cors: false,
       proxy: {
         "/api": {
           target: apiProxyTarget,

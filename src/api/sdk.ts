@@ -123,3 +123,39 @@ export function etagGetter(
       resource.api_version,
     );
 }
+
+/** The row as the table showed it: the list endpoint returns no ETags. */
+type Row = Readonly<Record<string, unknown>>;
+
+/**
+ * The ETag for an inline edit of `row`, for the table's `ifMatch`. The list
+ * carries no ETags, so the record is read by id once (the SDK cache keeps its
+ * ETag) and `cachedEtag` answers. If that read no longer matches the row the
+ * user edited, the record changed since the list loaded and the edit is
+ * refused, because an ETag taken now would let it overwrite that change.
+ */
+export function rowEtagGetter(
+  api: Pick<CrudApi, "client" | "cache">,
+  resource: Pick<Resource, "name" | "api_version" | "id_field">,
+): (row: Row) => Promise<string | undefined> {
+  const etag = etagGetter(api, resource);
+  return async (row) => {
+    const id = Number(row[resource.id_field]);
+    const handle = await api.client.resource(
+      resource.name,
+      resource.api_version,
+    );
+    const current: Row = await handle.get(id);
+    const changed = Object.keys(row).some(
+      (key) =>
+        key in current &&
+        JSON.stringify(current[key]) !== JSON.stringify(row[key]),
+    );
+    if (changed) {
+      throw new Error(
+        "This record was changed since the list loaded. Reload the list and try again.",
+      );
+    }
+    return etag(id);
+  };
+}

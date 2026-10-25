@@ -26,8 +26,9 @@ Four facts about the libraries and the app shaped the wiring:
   only be built after the manifest is known.
 - `ResourceForm` takes an `etag(id)` callback (the record query returns only
   the body), and the SDK exposes ETags only through `cache.cachedEtag`, which
-  is async. The table's inline edit takes `ifMatch(row)`, which in
-  crud-views 0.1.0 must be synchronous, and the list endpoint returns no ETags.
+  is async. The table's inline edit takes `ifMatch(row)` (async since
+  crud-views 0.2.0, item VW5; 0.1.0 needed a synchronous answer the SDK could
+  not give), and the list endpoint returns no ETags.
 - The app has no router.
 
 ## Decision
@@ -54,28 +55,28 @@ Four facts about the libraries and the app shaped the wiring:
 - **ETags.** `etagGetter` returns `cache.cachedEtag(...)` for the record the
   form just read, and is passed as `etag` to every `ResourceForm` (including
   the one `RecordDetail` mounts). A stale save fails with 412 and the form
-  shows the conflict. **Inline edit in the table stays off** (user decision,
-  2026-10-24): 0.1.0's synchronous `ifMatch` cannot ask the SDK for a row's
-  ETag, and an inline edit without one would be an unconditional PATCH. Item
-  VW5 makes `ifMatch` accept a promise (crud-views 0.2.0); this app then bumps
-  the pin, passes an `ifMatch` that fetches the row by id once and returns
-  `etagGetter(...)(id)`, and sets `INLINE_EDIT` in `AdminPage.tsx`.
-  **Status: pending VW5.**
+  shows the conflict. **Inline edit in the table is on** for callers whose roles
+  may write: `rowEtagGetter` reads the record by id (the SDK cache keeps its
+  ETag), refuses the edit when that read no longer matches the row the user
+  edited (the record changed since the list loaded, and an ETag taken now would
+  let the edit overwrite that change), and otherwise returns
+  `cache.cachedEtag(...)` as `If-Match`; a 412 from a race shows as a save
+  error. Because a double click both opens a record and starts an edit,
+  opening waits 300 ms and a double click or an edit in progress cancels it.
 - **Vite adds `Vary: Origin`.** Vite's dev and preview servers add it to every
   response, proxied ones included, and the SDK cache refuses to store a
   response that varies on anything but Authorization, Accept or
-  Accept-Encoding. Under `pnpm dev` no ETag is ever held, so saves are
-  unconditional there; the production image's nginx adds no such header. The
-  e2e serves the bundle with `tests/e2e/vite.preview.config.ts`
-  (`preview.cors: false`). Setting `server.cors: false` in `vite.config.ts`
-  would fix `pnpm dev` too; that file is outside this item's write set.
+  Accept-Encoding, so no ETag is ever held and saves are unconditional. The
+  app is same-origin with its proxy and needs no CORS, so `vite.config.ts` sets
+  `server.cors: false` (`preview.cors` follows it). The production image's
+  nginx adds no such header.
 - **Navigation.** No router dependency (user decision, 2026-10-24). The
   selected resource, view and record are the query parameters `resource`,
   `view` and `id`, read and written through crud-views' `UrlAdapter`
   (`defaultUrlAdapter`, i.e. `window.location` and `history`), the same
   adapter the lists use for filter, sort and paging, so deep links and the back
   button work. Each list prefixes its own parameters with the resource name.
-- **Dependencies.** `@craftainer/crud-sdk` and `@craftainer/crud-views` 0.1.0,
+- **Dependencies.** `@craftainer/crud-sdk` 0.1.0, `@craftainer/crud-views` 0.2.0,
   plus `@mui/x-data-grid` and `@mui/x-charts` 9.16.0 (crud-views' peers; MIT
   tier only). The `@craftainer/*` scope is excluded from pnpm's
   `minimumReleaseAge` (user decision, 2026-10-24): we release these ourselves
@@ -102,8 +103,9 @@ Four facts about the libraries and the app shaped the wiring:
 - The `/api` prefixing `fetch` is the one place that knows about the proxy; it
   re-creates each `Request` (body as a buffer), so streaming request bodies are
   not supported.
-- Until VW5, rows cannot be edited in the table, only on the record page. The
-  e2e journey and the stories do not cover inline edit.
+- The e2e journey covers inline edit (conditional save, and a refusal after
+  an outside change); jsdom cannot render the DataGrid's rows, so the unit
+  tests cover `rowEtagGetter` and the stories do not edit cells.
 - The e2e needs a running template-fastapi (MODE=dev, Postgres and Keycloak)
   and Docker for the Playwright image; it is not part of `prek` and runs in the
   verification lane (`tests/e2e/README.md`).
