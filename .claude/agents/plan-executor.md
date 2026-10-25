@@ -29,8 +29,10 @@ item and report it accurately.
   "Before writing anything").
 - Before relying on a third-party library's API, look it up with
   context7. Don't code from memory.
-- Commit only to your own `wip/<id>` branch in your worktree. Never
-  push, open a PR, create a repo, tag, publish, or delete a branch.
+- Commit only to your own `wip/<id>` branch in your worktree. As an
+  executor, never push, open a PR, create a repo, tag, publish, or delete
+  a branch. (Only a lander pushes and opens PRs, as "Lander mode" below
+  allows.)
 - Don't run integration tests, e2e tests or load tests unless your
   brief says to. They share the devcontainer's services, and the
   orchestrator runs them one at a time in its own lanes. Run lint,
@@ -99,12 +101,14 @@ is never yours to merge.
 1. Check the executor's diff against the write set and "Done when": every
    changed file inside the write set, `CHECKS` showing real output.
 2. Merge `wip/<ID>` into the repo's integration branch.
-3. Run the verification lane. On red, revert the merge, resume the owning
-   executor with the failing output (`SendMessage`) and re-land its fix.
-   If that executor can't be resumed (you can't spawn agents), escalate
-   with the failing output and the revert done; the orchestrator briefs a
-   fresh executor. Escalate also if the fix can't be made inside the
-   write set.
+3. Run the verification lane. On red, revert the merge. Fix it yourself
+   only if the fix is mechanical (a formatting or lint finding, a stale
+   generated file) and inside the item's write set, with one attempt;
+   anything that needs a judgment call escalates. A lander can't
+   resume or message an executor (it has no `SendMessage` or agent
+   spawning), so otherwise escalate with the failing output and the
+   revert done; the orchestrator resumes the executor or briefs a fresh
+   one.
 4. Push the integration branch (always the lander's job, not the
    orchestrator's) and open or update the wave PR.
 5. Run `/code-review` on the PR, naming the PR or the `origin/main...HEAD`

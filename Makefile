@@ -144,16 +144,18 @@ else
 		oci-archive:/$(ASSET).tar docker://$(OCI_REGISTRY)/$(OCI_NAME):$(RELEASE_VERSION)-$(RELEASE_ARCH)
 endif
 
-# Once, after every arch leg, and only when the instance sets PYPI_PUBLISH,
-# NPM_PUBLISH or CARGO_PUBLISH. template-docker ships an image, not a
-# package, so like base's default this fails loudly when one of those is set
-# rather than silently releasing without its package; an instance that
-# publishes packages replaces this target with its own upload from dist/.
+# Once, after the GitHub release exists, and only when the instance sets
+# PYPI_PUBLISH, NPM_PUBLISH or CARGO_PUBLISH. template-docker ships an image,
+# not a package, so like base's default this fails loudly when one of those is
+# set rather than silently releasing without its package. This Makefile is
+# template-owned (a sync overwrites it), so an instance cannot replace the
+# target locally: one that publishes packages needs the upload added here, in
+# template-docker.
 publish-packages:
 	@set -e; \
 	for v in PYPI_PUBLISH NPM_PUBLISH CARGO_PUBLISH; do \
 	  if [ -n "$$(printenv $$v)" ]; then \
-	    echo "error: this instance sets $$v but its Makefile doesn't implement publish-packages; replace this target with the package upload (see docs/TEMPLATE.md)" >&2; \
+	    echo "error: this instance sets $$v but its Makefile doesn't implement publish-packages; add the package upload to template-docker's Makefile (see docs/TEMPLATE.md)" >&2; \
 	    exit 1; \
 	  fi; \
 	done; \

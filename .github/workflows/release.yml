@@ -3,10 +3,16 @@
 # "Release: a Makefile contract" section) and creates a GitHub release
 # with everything the instance's Makefile populated into dist/:
 # `release-arches` picks the arch matrix; `build`/`sbom`/`release-assets`/
-# `publish` (image registries) run once per arch on a native runner;
-# `publish-packages` (PyPI/npm/crates.io) runs once, in a job that exists
-# only for instances that opt in; then `release-check` runs inside the
-# devcontainer and `finalize` on the host, once.
+# `publish` (image registries) run once per arch on a native runner (image
+# `publish` runs inside `build`, so a pushed image is not gated by
+# `release-check`); then, once each and in this order: `release-check`
+# (inside the devcontainer; gates the GitHub release and package
+# publishing), `finalize` + the GitHub release (host), and only after the
+# release exists `publish-packages` (PyPI/npm/crates.io) and
+# `verify-published`, both in jobs that exist only for instances that opt in.
+# So a partial registry failure never withholds the GitHub release; a re-run
+# of just the failed jobs finishes publishing (the `release` job skips an
+# existing release).
 name: Release
 
 on:
@@ -118,24 +124,221 @@ jobs:
       - name: Publish
         run: make publish
 
+      # Packed into one tarball so the artifact is never empty (a leg that
+      # produced nothing still uploads) and a missing upload is an error
+      # that `release-check`'s assembly step reports by arch. The file name
+      # carries the arch: `release-check` downloads with `merge-multiple`,
+      # which puts every leg's file in one directory.
+      - name: Pack release assets
+        run: |
+          mkdir -p dist
+          tar -C dist -cf "$RUNNER_TEMP/assets-${{ matrix.arch }}.tar" .
+
       - name: Upload release assets
         uses: actions/upload-artifact@v7.0.2
         with:
           name: release-assets-${{ matrix.arch }}
-          path: dist/
-          if-no-files-found: ignore
+          path: ${{ runner.temp }}/assets-${{ matrix.arch }}.tar
+          if-no-files-found: error
+
+  # Validation gate: runs once after every arch leg, before the GitHub
+  # release and package publishing (not before the per-arch image `publish`
+  # in `build`). Assembles the per-arch `dist/`s (failing on a
+  # missing arch or on a file name two legs both produced, which a plain
+  # merge would silently overwrite), runs `make release-check` in the
+  # devcontainer, and hands the assembled `dist/` (including anything
+  # release-check added) to the jobs after it as one artifact.
+  release-check:
+    needs: [version, build]
+    permissions:
+      contents: read
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      # `merge-multiple` puts every leg's `assets-<arch>.tar` in `parts/`.
+      # Without it download-artifact extracts into `parts/<artifact name>/`
+      # only when several artifacts match; a single match (one arch) lands
+      # directly in `parts/`, so the layout would depend on the arch count.
+      - name: Download per-arch release assets
+        uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: release-assets-*
+          path: parts/
+          merge-multiple: true
+
+      # Fails on a missing arch or on any path two legs both produce (same
+      # file name, file vs directory, symlinks), see the script.
+      - name: Assemble dist/
+        env:
+          ARCHES: ${{ needs.version.outputs.arches }}
+        run: python3 .github/scripts/assemble_dist.py "$ARCHES" parts dist
+
+      # Unique per run so concurrent runs (two PRs, or a re-run) never
+      # collide on container/volume/network names, and so the teardown
+      # step below tears down exactly this run's stack and nothing else.
+      - name: Set compose project name
+        run: echo "COMPOSE_PROJECT_NAME=ci-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+
+      # Values come from this step's `env:`; the `env:` input below names
+      # which of them devcontainers/ci forwards into the container.
+      - name: Run release-check in the devcontainer
+        uses: devcontainers/ci@v0.3
+        env:
+          # Build-time only (compose's build secret); not in `env:` below,
+          # so it is not forwarded into the container.
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        with:
+          runCmd: make release-check
+          env: |
+            RELEASE_VERSION
+            RELEASE_TAG
+            GITHUB_REPOSITORY
+
+      # devcontainers/ci starts the full compose stack but never tears it
+      # down -- see checks.yml's identical step.
+      - name: Tear down devcontainer stack
+        if: always()
+        # COMPOSE_PROJECT_NAME is unset when an earlier step failed before
+        # "Set compose project name"; then no stack was started either.
+        run: |
+          if [ -z "${COMPOSE_PROJECT_NAME:-}" ]; then
+            echo "No compose project name set; nothing to tear down."
+            exit 0
+          fi
+          docker compose -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans
+
+      # The devcontainer runs as another user (often root), so files it
+      # wrote into dist/ may be unreadable here.
+      - name: Pack dist/
+        run: |
+          if [ -n "$(find dist ! -user "$(id -u)" -print -quit)" ]; then
+            # `-n` never prompts: without passwordless sudo this fails at once
+            # instead of hanging or failing later with a less clear error.
+            sudo -n true 2> /dev/null || {
+              echo "::error::dist/ holds files owned by another user and passwordless sudo is not available to take them over"
+              exit 1
+            }
+            sudo chown -R "$(id -u):$(id -g)" dist
+          fi
+          tar -C dist -cf "$RUNNER_TEMP/dist.tar" .
+
+      - name: Upload assembled dist/
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: release-dist
+          path: ${{ runner.temp }}/dist.tar
+          if-no-files-found: error
+
+  release:
+    needs: [version, release-check]
+    # Two runs for the same tag (a double dispatch, or a re-run beside a
+    # newer run) must not race on the draft deletion, finalize and release
+    # creation below: the second waits and then sees the published release.
+    # Never cancel a running one (it may be mid-finalize). Per GitHub, at
+    # most one run waits per group, and a newer waiting run replaces it.
+    concurrency:
+      group: release-${{ needs.version.outputs.tag }}
+      cancel-in-progress: false
+    # renovate: datasource=github-runners depName=ubuntu
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Download assembled dist/
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: release-dist
+          path: ${{ runner.temp }}/release-dist
+
+      - name: Unpack dist/
+        run: |
+          mkdir -p dist
+          tar -C dist -xf "$RUNNER_TEMP/release-dist/dist.tar"
+
+      # Makes this job re-runnable: once the release is published, a re-run
+      # (e.g. after a later job failed) must not finalize or create it again.
+      # A leftover draft (an earlier attempt died while attaching assets) is
+      # deleted -- not its tag -- so the release is recreated cleanly. Looked
+      # up through the releases list: unlike `gh release view`, it includes
+      # drafts.
+      - name: Check for an existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The tag goes to jq as a variable, never into the filter text.
+          found=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
+            jq -r --arg tag "$RELEASE_TAG" '.[] | select(.tag_name == $tag) | "\(.id) \(.draft)"')
+          published=false
+          while read -r id draft; do
+            [ -n "$id" ] || continue
+            if [ "$draft" = "true" ]; then
+              echo "Deleting the leftover draft release $RELEASE_TAG (id $id)."
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}"
+            else
+              echo "Release $RELEASE_TAG already exists; skipping finalize and release creation."
+              published=true
+            fi
+          done <<< "$found"
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+
+      - name: Finalize
+        if: steps.existing.outputs.published != 'true'
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          OCI_REGISTRY: ${{ vars.OCI_REGISTRY }}
+          OCI_IMAGE_NAME: ${{ vars.OCI_IMAGE_NAME }}
+          OCI_REGISTRY_USERNAME: ${{ secrets.OCI_REGISTRY_USERNAME }}
+          OCI_REGISTRY_PASSWORD: ${{ secrets.OCI_REGISTRY_PASSWORD }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make finalize
+
+      # Lets `gh` create the tag itself (from the checked-out commit) and
+      # the release in one step, using GitHub's own "generate release
+      # notes" changelog -- the same one the web UI's button produces.
+      # Every file `make release-assets` left in dist/ is attached.
+      - name: Create GitHub release
+        if: steps.existing.outputs.published != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG=--prerelease
+          else
+            PRERELEASE_FLAG=
+          fi
+          shopt -s nullglob
+          assets=(dist/*)
+          gh release create "${{ needs.version.outputs.tag }}" \
+            "${assets[@]}" \
+            --title "${{ needs.version.outputs.tag }}" \
+            --target "${{ github.sha }}" \
+            --generate-notes \
+            $PRERELEASE_FLAG
 
   # Package publishing (PyPI, npm, crates.io), once per release rather than
-  # once per arch. GitHub permissions are per job, not per step, so the OIDC
-  # `id-token: write` permission and the bootstrap secrets live in this
-  # job alone, and a job-level `if` on the `*_PUBLISH` repository variables
-  # means an image-only instance never starts it: it never requests an OIDC
-  # token and never has a package secret in an environment. (`vars` is
-  # allowed in `jobs.<id>.if`; `secrets` is not, which is why the variables
-  # are the opt-in switch.) The arch legs' `dist/` is downloaded first, so
-  # `make publish-packages` uploads exactly what `make build` produced.
+  # once per arch, and only after `release-check` passed and the GitHub
+  # release exists (`needs: release`). GitHub permissions are per job, not
+  # per step, so the OIDC `id-token: write` permission and the bootstrap
+  # secrets live in this job alone, and a job-level `if` on the
+  # `*_PUBLISH` repository variables means an image-only instance never
+  # starts it: it never requests an OIDC token and never has a package
+  # secret in an environment. (`vars` is allowed in `jobs.<id>.if`;
+  # `secrets` is not, which is why the variables are the opt-in switch.)
+  # The assembled `dist/` is downloaded first, so `make publish-packages`
+  # uploads exactly what `make build` produced.
   publish-packages:
-    needs: [version, build]
+    needs: [version, release]
     if: ${{ vars.PYPI_PUBLISH != '' || vars.NPM_PUBLISH != '' || vars.CARGO_PUBLISH != '' }}
     permissions:
       contents: read
@@ -157,12 +360,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
 
-      - name: Download release assets
+      - name: Download assembled dist/
         uses: actions/download-artifact@v8.0.2
         with:
-          pattern: release-assets-*
-          merge-multiple: true
-          path: dist/
+          name: release-dist
+          path: ${{ runner.temp }}/release-dist
+
+      - name: Unpack dist/
+        run: |
+          mkdir -p dist
+          tar -C dist -xf "$RUNNER_TEMP/release-dist/dist.tar"
 
       # The only step that sees the registry bootstrap tokens. Unset
       # secrets arrive as empty strings, which the Makefile must treat as
@@ -174,98 +381,49 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: make publish-packages
 
-  release:
-    needs: [version, build, publish-packages]
-    # A skipped `publish-packages` (no package opt-in) would skip this job
-    # too, so require version and build to succeed and let only
-    # `publish-packages` be skipped.
-    if: >-
-      ${{ !cancelled()
-      && needs.version.result == 'success'
-      && needs.build.result == 'success'
-      && contains(fromJSON('["success","skipped"]'), needs.publish-packages.result) }}
+  # Post-publish verification (e.g. install the just-published package from
+  # the registry). Needs no secrets and no OIDC token. Runs only for an
+  # instance that opted into publishing, after `publish-packages` succeeded.
+  verify-published:
+    needs: [version, publish-packages]
+    if: ${{ vars.PYPI_PUBLISH != '' || vars.NPM_PUBLISH != '' || vars.CARGO_PUBLISH != '' }}
+    permissions:
+      contents: read
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+      PYPI_PUBLISH: ${{ vars.PYPI_PUBLISH }}
+      NPM_PUBLISH: ${{ vars.NPM_PUBLISH }}
+      CARGO_PUBLISH: ${{ vars.CARGO_PUBLISH }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
 
-      - name: Download release assets
+      - name: Download assembled dist/
         uses: actions/download-artifact@v8.0.2
         with:
-          pattern: release-assets-*
-          merge-multiple: true
-          path: dist/
+          name: release-dist
+          path: ${{ runner.temp }}/release-dist
 
-      # Unique per run so concurrent runs (two PRs, or a re-run) never
-      # collide on container/volume/network names, and so the teardown
-      # step below tears down exactly this run's stack and nothing else.
-      - name: Set compose project name
-        run: echo "COMPOSE_PROJECT_NAME=ci-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-
-      # Values come from this step's `env:`; the `env:` input below names
-      # which of them devcontainers/ci forwards into the container.
-      - name: Run release-check in the devcontainer
-        uses: devcontainers/ci@v0.3
-        env:
-          # Build-time only (compose's build secret); not in `env:` below,
-          # so it is not forwarded into the container.
-          GITHUB_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-          RELEASE_TAG: ${{ needs.version.outputs.tag }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          # So a package's release-check can also install what publish uploaded.
-          PYPI_PUBLISH: ${{ vars.PYPI_PUBLISH }}
-          NPM_PUBLISH: ${{ vars.NPM_PUBLISH }}
-          CARGO_PUBLISH: ${{ vars.CARGO_PUBLISH }}
-        with:
-          runCmd: make release-check
-          env: |
-            RELEASE_VERSION
-            RELEASE_TAG
-            GITHUB_REPOSITORY
-            PYPI_PUBLISH
-            NPM_PUBLISH
-            CARGO_PUBLISH
-
-      # devcontainers/ci starts the full compose stack but never tears it
-      # down -- see checks.yml's identical step.
-      - name: Tear down devcontainer stack
-        if: always()
+      - name: Unpack dist/
         run: |
-          docker compose \
-            -p ${{ env.COMPOSE_PROJECT_NAME }} \
-            down --volumes --remove-orphans
+          mkdir -p dist
+          tar -C dist -xf "$RUNNER_TEMP/release-dist/dist.tar"
 
-      - name: Finalize
-        env:
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-          RELEASE_TAG: ${{ needs.version.outputs.tag }}
-          OCI_REGISTRY: ${{ vars.OCI_REGISTRY }}
-          OCI_IMAGE_NAME: ${{ vars.OCI_IMAGE_NAME }}
-          OCI_REGISTRY_USERNAME: ${{ secrets.OCI_REGISTRY_USERNAME }}
-          OCI_REGISTRY_PASSWORD: ${{ secrets.OCI_REGISTRY_PASSWORD }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: make finalize
-
-      # Lets `gh` create the tag itself (from the checked-out commit) and
-      # the release in one step, using GitHub's own "generate release
-      # notes" changelog — the same one the web UI's button produces.
-      # Every file `make release-assets` left in dist/ is attached.
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify published packages
         run: |
-          if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then
-            PRERELEASE_FLAG=--prerelease
-          else
-            PRERELEASE_FLAG=
+          # An instance whose Makefile predates this target (not
+          # template-owned, so a sync does not add it) has nothing to run:
+          # warn instead of failing after the packages are already live.
+          # The probe fails (exit 2) on a Makefile that does not parse.
+          rc=0
+          .github/scripts/has_make_target.sh verify-published || rc=$?
+          if [ "$rc" -eq 1 ]; then
+            echo "::warning::this Makefile has no verify-published target; the published release was not verified"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
           fi
-          shopt -s nullglob
-          assets=(dist/*)
-          gh release create "${{ needs.version.outputs.tag }}" \
-            "${assets[@]}" \
-            --title "${{ needs.version.outputs.tag }}" \
-            --target "${{ github.sha }}" \
-            --generate-notes \
-            $PRERELEASE_FLAG
+          make verify-published

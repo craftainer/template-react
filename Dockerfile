@@ -6,7 +6,7 @@
 # the bundle is built with the same Node the devcontainer tests against --
 # enforced by scripts/check-dockerfile-versions.sh.
 # renovate: datasource=node-version depName=node
-ARG NODE_VERSION=24.22.0
+ARG NODE_VERSION=24.22.1
 ARG DEBIAN_VERSION=trixie
 
 # renovate: datasource=docker depName=nginxinc/nginx-unprivileged

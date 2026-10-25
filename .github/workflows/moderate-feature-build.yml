@@ -92,6 +92,7 @@ jobs:
             "Read,Grep,Glob,Write,Edit,Bash(git *),Bash(prek run *)${{ vars.MODERATION_EXTRA_TOOLS && format(',{0}', vars.MODERATION_EXTRA_TOOLS) || '' }}"
             40 900
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
 
       - name: Remove Claude API key
