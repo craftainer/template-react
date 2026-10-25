@@ -16,9 +16,11 @@
   (no QEMU — see "Architecture matrix" below), each leg uploading its
   `dist/` as `release-assets-<arch>`; the `release-check` job then assembles
   the `dist/`s (failing on a missing arch or a duplicate file name) and
-  runs `make release-check` inside the devcontainer, gating everything
-  after it; the `release` job runs `make finalize` and creates the GitHub
-  release with everything in `dist/`; only then do `publish-packages` and
+  runs `make release-check` inside the devcontainer, gating the GitHub
+  release and package publishing (not the per-arch image `publish`, which
+  already ran in `build`); the `release` job runs `make finalize` and
+  creates the GitHub release with everything in `dist/`; only then do
+  `publish-packages` and
   `verify-published` run, and only for an instance that sets
   `PYPI_PUBLISH`, `NPM_PUBLISH` or `CARGO_PUBLISH`. A partial registry
   failure therefore never withholds the release.
@@ -37,6 +39,10 @@
   schedule or `workflow_dispatch`, diffs the instance against the
   template's latest tagged release per the manifest's tiers and opens a
   PR — never a direct push, never auto-merged.
+  `template_sync.py apply` exits 0 (clean), 1 (merge conflicts, still
+  opens the PR) or 2 (error, e.g. `git merge-file` failing on a binary
+  file, or an unreadable manifest): every failure other than conflicts
+  exits 2, and on 2 the job fails before the sync state advances.
 
 Every workflow's `runs-on` defaults to `ubuntu-24.04` but can be
 overridden with the `CI_RUNNER` repository/organization variable —
@@ -108,7 +114,15 @@ re-checks the issue's `*:*-ready` label before acting (a no-op, not an
 error, if it's already gone) since it isn't concurrency-grouped with the
 worker the way every other moderation workflow is -- `workflow_run`
 can't see the issue number to key a group on before the artifact is
-downloaded.
+downloaded. The triggering worker run also concludes `success` when its
+jobs were all skipped (unrelated comment, missing label, no API key), in
+which case no `moderation-result` artifact exists;
+`actions/download-artifact` has no "if not found" mode, so the apply
+workflows first look the artifact up by name through the run's artifacts API
+(`../scripts/find_moderation_result.sh`; the run's other artifacts are not
+listed, so more than 30 cannot hide it) and skip the download/apply steps
+when it is absent or expired (the latter logs a notice). The download itself stays
+strict, so real failures still fail the job.
 
 Activating this in a given repo/fork takes two one-time steps, neither
 of which is itself a workflow: provisioning a dedicated Anthropic

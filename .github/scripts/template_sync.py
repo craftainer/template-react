@@ -30,6 +30,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import traceback
 from datetime import date
 from pathlib import Path
 
@@ -39,6 +40,13 @@ TAG_RE = re.compile(
     r"^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
     r"(?:-(?P<pre_type>alpha|beta|rc)\.(?P<pre_num>\d+))?$"
 )
+# ``apply`` exit statuses: 0 clean, 1 merge conflicts, 2 error.
+EXIT_CONFLICTS = 1
+EXIT_ERROR = 2
+# ``git merge-file`` reports at most this many conflicts as its exit status.
+MAX_CONFLICTS = 127
+# The monthly cadence runs only in the first week of the month: day 1-7.
+FIRST_WEEK_LAST_DAY = 7
 PRE_ORDER = {"alpha": 0, "beta": 1, "rc": 2}
 CHANNELS = ("stable", "alpha", "beta", "rc")
 
@@ -95,7 +103,7 @@ def cmd_check_cadence(args: argparse.Namespace) -> int:
     if args.interval == "weekly":
         return 0
     if args.interval == "monthly":
-        return 0 if args.date.day <= 7 else 1  # noqa: PLR2004 -- "first week" is day 1-7
+        return 0 if args.date.day <= FIRST_WEEK_LAST_DAY else 1
     print(f"::error::unknown TEMPLATE_SYNC_INTERVAL '{args.interval}'", file=sys.stderr)
     return 1
 
@@ -228,19 +236,36 @@ def apply_replace(
 
 
 def merge_file(instance_file: Path, base_file: Path, theirs_file: Path) -> bool:
-    """3-way merge ``theirs_file`` into ``instance_file`` in place; return True on conflict."""
+    """3-way merge ``theirs_file`` into ``instance_file`` in place; True on conflict.
+
+    ``git merge-file`` exits with the number of conflicts, capped at
+    ``MAX_CONFLICTS`` (127). Any other status is an error, such as a binary or
+    unreadable file (git exits 255) or a signal kill (negative status). An
+    error is not a conflict: raise instead of reporting it as one, so the sync
+    fails loudly rather than leaving a half-merged file.
+    """
     result = subprocess.run(  # noqa: S603 -- "git" via PATH, a trusted CI/dev tool
         ["git", "merge-file", str(instance_file), str(base_file), str(theirs_file)],  # noqa: S607
         capture_output=True,
         check=False,
     )
-    return result.returncode != 0
+    if result.returncode < 0 or result.returncode > MAX_CONFLICTS:
+        stderr = result.stderr.decode(errors="replace").strip()
+        raise RuntimeError(
+            f"git merge-file failed (exit {result.returncode}) for {instance_file}: {stderr}"
+        )
+    return result.returncode > 0
 
 
 def apply_merge(
     old_root: Path, new_root: Path, instance_root: Path, paths: set[str]
 ) -> dict[str, list[str]]:
-    """3-way-merge merge-tier paths; return {"merged": [...], "conflicts": [...]}."""
+    """3-way-merge merge-tier paths; return {"merged": [...], "conflicts": [...]}.
+
+    ``merged`` lists only files whose content actually changed, so running the
+    same step again (an instance already at the new version) reports nothing.
+    A path the instance links elsewhere is left alone, as in the replace tier.
+    """
     merged: list[str] = []
     conflicts: list[str] = []
     for path in sorted(paths):
@@ -249,6 +274,8 @@ def apply_merge(
         instance_file = instance_root / path
         if not new_file.exists():
             continue  # removed upstream: a merge-tier file is never deleted automatically.
+        if instance_file.is_symlink():
+            continue  # the instance deliberately links it; merging would write through the link.
         if not instance_file.exists():
             instance_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(new_file, instance_file)
@@ -257,6 +284,7 @@ def apply_merge(
         base_content = old_file.read_bytes() if old_file.exists() else b""
         if new_file.read_bytes() == base_content:
             continue  # unchanged upstream since the last sync
+        before = instance_file.read_bytes()
         if old_file.exists():
             conflicted = merge_file(instance_file, old_file, new_file)
         else:
@@ -264,25 +292,39 @@ def apply_merge(
             # version to use as a base, so merge against an empty one.
             with tempfile.NamedTemporaryFile() as empty_base:
                 conflicted = merge_file(instance_file, Path(empty_base.name), new_file)
-        (conflicts if conflicted else merged).append(path)
+        if conflicted:
+            conflicts.append(path)
+        elif instance_file.read_bytes() != before:
+            merged.append(path)
     return {"merged": merged, "conflicts": conflicts}
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
-    """Apply the replace and merge tiers, printing a JSON summary to stdout."""
-    tiers = parse_manifest(args.manifest.read_text())
-    replace_paths = tier_paths(args.old_ref, tiers, "replace") | tier_paths(
-        args.new_ref, tiers, "replace"
-    )
-    merge_paths = tier_paths(args.new_ref, tiers, "merge") | tier_paths(
-        args.old_ref, tiers, "merge"
-    )
-    summary = {
-        "replace": apply_replace(args.old_ref, args.new_ref, args.instance_root, replace_paths),
-        "merge": apply_merge(args.old_ref, args.new_ref, args.instance_root, merge_paths),
-    }
+    """Apply the replace and merge tiers, printing a JSON summary to stdout.
+
+    Exit status: 0 clean, 1 merge conflicts (summary printed), 2 error (nothing
+    printed to stdout; the caller must fail and not advance the sync state).
+    """
+    try:
+        tiers = parse_manifest(args.manifest.read_text())
+        replace_paths = tier_paths(args.old_ref, tiers, "replace") | tier_paths(
+            args.new_ref, tiers, "replace"
+        )
+        merge_paths = tier_paths(args.new_ref, tiers, "merge") | tier_paths(
+            args.old_ref, tiers, "merge"
+        )
+        summary = {
+            "replace": apply_replace(args.old_ref, args.new_ref, args.instance_root, replace_paths),
+            "merge": apply_merge(args.old_ref, args.new_ref, args.instance_root, merge_paths),
+        }
+    except Exception as err:  # noqa: BLE001 -- any failure must exit 2, never an uncaught 1
+        # An uncaught exception exits 1, which the workflow reads as "conflicts".
+        # BaseException (Ctrl-C, SystemExit) is deliberately left alone.
+        traceback.print_exc()
+        print(f"error: {type(err).__name__}: {err}", file=sys.stderr)
+        return EXIT_ERROR
     print(json.dumps(summary, indent=2))
-    return 1 if summary["merge"]["conflicts"] else 0
+    return EXIT_CONFLICTS if summary["merge"]["conflicts"] else 0
 
 
 def pr_body(summary: dict[str, dict[str, list[str]]], old_tag: str, new_tag: str, repo: str) -> str:

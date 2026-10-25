@@ -7,6 +7,9 @@ Stdlib ``unittest`` only (see this directory's README); run with
 
 from __future__ import annotations
 
+import argparse
+import contextlib
+import io
 import os
 import re
 import shutil
@@ -15,6 +18,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import template_sync
 
@@ -195,6 +199,161 @@ class TierPathsGlobTest(unittest.TestCase):
         self.assertEqual(args.func(args), 0)
         self.assertTrue((instance / "scripts/release-a.sh").is_file())
         self.assertFalse((instance / "scripts/other.sh").exists())
+
+
+class ApplyMergeTest(unittest.TestCase):
+    """``template_sync.apply_merge`` reports only real changes and leaves links alone."""
+
+    def setUp(self) -> None:
+        """Create old/new template checkouts and an instance in a temp dir."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.old, self.new, self.instance = (self.root / n for n in ("old", "new", "instance"))
+        write(self.old / "m.txt", b"a\nb\nc\n", 0o644)
+        write(self.new / "m.txt", b"a\nB\nc\n", 0o644)
+        write(self.instance / "m.txt", b"a\nb\nc\nd\n", 0o644)
+
+    def apply(self) -> dict[str, list[str]]:
+        """Run the merge step for ``m.txt``."""
+        return template_sync.apply_merge(self.old, self.new, self.instance, {"m.txt"})
+
+    def test_second_run_changes_and_reports_nothing(self) -> None:
+        """Re-running the same old->new sync leaves the tree alone and lists no files."""
+        # Regression: a re-run reported every merge-tier file as "merged" again.
+        self.assertEqual(self.apply(), {"merged": ["m.txt"], "conflicts": []})
+        merged = (self.instance / "m.txt").read_bytes()
+        self.assertEqual(merged, b"a\nB\nc\nd\n")
+        self.assertEqual(self.apply(), {"merged": [], "conflicts": []})
+        self.assertEqual((self.instance / "m.txt").read_bytes(), merged)
+
+    def test_instance_already_equal_to_new_is_not_reported(self) -> None:
+        """A file the instance already has at the new version is not "merged"."""
+        write(self.instance / "m.txt", b"a\nB\nc\n", 0o644)
+        self.assertEqual(self.apply(), {"merged": [], "conflicts": []})
+
+    def test_symlinked_instance_file_is_not_merged_through(self) -> None:
+        """Like the replace tier, a deliberately linked instance file is left alone."""
+        target = self.root / "real.txt"
+        target.write_bytes(b"a\nb\nc\nd\n")
+        (self.instance / "m.txt").unlink()
+        (self.instance / "m.txt").symlink_to(target)
+        self.assertEqual(self.apply(), {"merged": [], "conflicts": []})
+        self.assertEqual(target.read_bytes(), b"a\nb\nc\nd\n")
+
+    def test_dangling_symlink_is_not_written_through(self) -> None:
+        """A dangling link is not "missing": copying would create its target."""
+        (self.instance / "m.txt").unlink()
+        dangling = self.root / "nowhere.txt"
+        (self.instance / "m.txt").symlink_to(dangling)
+        self.assertEqual(self.apply(), {"merged": [], "conflicts": []})
+        self.assertFalse(dangling.exists())
+
+
+class MergeFileErrorTest(unittest.TestCase):
+    """``git merge-file`` exit 255 is an error, not a conflict."""
+
+    def setUp(self) -> None:
+        """Create a temp dir for the three merge inputs."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def merge(self) -> bool:
+        """Run ``merge_file`` on the ours/base/theirs files."""
+        root = self.root
+        return template_sync.merge_file(root / "ours", root / "base", root / "theirs")
+
+    def test_conflict_is_reported_as_true(self) -> None:
+        """Overlapping edits are a conflict: True, markers written."""
+        write(self.root / "base", b"a\nb\nc\n", 0o644)
+        write(self.root / "theirs", b"a\nX\nc\n", 0o644)
+        write(self.root / "ours", b"a\nY\nc\n", 0o644)
+        self.assertTrue(self.merge())
+
+    def test_clean_merge_is_reported_as_false(self) -> None:
+        """A merge without overlapping edits is not a conflict."""
+        write(self.root / "base", b"a\nb\nc\n", 0o644)
+        write(self.root / "theirs", b"a\nB\nc\n", 0o644)
+        write(self.root / "ours", b"a\nb\nc\nd\n", 0o644)
+        self.assertFalse(self.merge())
+
+    def test_missing_input_raises_instead_of_reporting_a_conflict(self) -> None:
+        """A missing file makes git exit 255; that must raise."""
+        write(self.root / "base", b"a\n", 0o644)
+        write(self.root / "ours", b"a\n", 0o644)
+        with self.assertRaises(RuntimeError):
+            template_sync.merge_file(self.root / "ours", self.root / "base", self.root / "none")
+
+    def test_binary_file_error_propagates_from_apply_merge(self) -> None:
+        """A binary merge-tier file fails the sync rather than landing in ``conflicts``."""
+        old, new, instance = (self.root / n for n in ("old", "new", "instance"))
+        write(old / "b.bin", b"a\x00b\n", 0o644)
+        write(new / "b.bin", b"a\x00c\n", 0o644)
+        write(instance / "b.bin", b"a\x00d\n", 0o644)
+        with self.assertRaises(RuntimeError):
+            template_sync.apply_merge(old, new, instance, {"b.bin"})
+
+    def test_cmd_apply_returns_error_code_on_merge_error(self) -> None:
+        """``apply`` exits 2 (not the conflict code 1) when a merge errors."""
+        manifest = self.root / "manifest.yml"
+        manifest.write_text("")
+        args = argparse.Namespace(
+            manifest=manifest, old_ref=self.root, new_ref=self.root, instance_root=self.root
+        )
+        with (
+            mock.patch.object(template_sync, "parse_manifest", return_value={}),
+            mock.patch.object(template_sync, "tier_paths", return_value=set()),
+            mock.patch.object(template_sync, "apply_replace", return_value={}),
+            mock.patch.object(template_sync, "apply_merge", side_effect=RuntimeError("boom")),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self.assertEqual(template_sync.cmd_apply(args), 2)
+
+    def _apply_args(self, manifest: Path) -> argparse.Namespace:
+        """Build ``apply`` arguments over empty checkouts and the given manifest."""
+        return argparse.Namespace(
+            manifest=manifest, old_ref=self.root, new_ref=self.root, instance_root=self.root
+        )
+
+    def _exit_code(self, args: argparse.Namespace) -> int:
+        """Run ``cmd_apply`` with stderr captured."""
+        with contextlib.redirect_stderr(io.StringIO()):
+            return template_sync.cmd_apply(args)
+
+    def test_cmd_apply_returns_error_code_on_missing_manifest(self) -> None:
+        """An unreadable manifest is an error (2), not an uncaught traceback (1)."""
+        self.assertEqual(self._exit_code(self._apply_args(self.root / "absent.yml")), 2)
+
+    def test_cmd_apply_returns_error_code_on_undecodable_manifest(self) -> None:
+        """A manifest that is not UTF-8 (UnicodeDecodeError) exits 2."""
+        manifest = self.root / "manifest.yml"
+        manifest.write_bytes(b"\xff\xfe")
+        self.assertEqual(self._exit_code(self._apply_args(manifest)), 2)
+
+    def test_cmd_apply_returns_error_code_on_tier_paths_failure(self) -> None:
+        """A failure while expanding tiers to paths exits 2."""
+        manifest = self.root / "manifest.yml"
+        manifest.write_text("")
+        with mock.patch.object(template_sync, "tier_paths", side_effect=OSError("denied")):
+            self.assertEqual(self._exit_code(self._apply_args(manifest)), 2)
+
+    def test_cmd_apply_returns_error_code_on_unexpected_exception(self) -> None:
+        """Even a bug (here a KeyError) exits 2, not the traceback's 1 (= conflicts)."""
+        manifest = self.root / "manifest.yml"
+        manifest.write_text("")
+        with mock.patch.object(template_sync, "tier_paths", side_effect=KeyError("bug")):
+            self.assertEqual(self._exit_code(self._apply_args(manifest)), 2)
+
+    def test_cmd_apply_does_not_catch_base_exceptions(self) -> None:
+        """Ctrl-C and ``SystemExit`` still propagate."""
+        manifest = self.root / "manifest.yml"
+        manifest.write_text("")
+        with (
+            mock.patch.object(template_sync, "tier_paths", side_effect=KeyboardInterrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            self._exit_code(self._apply_args(manifest))
 
 
 _SCRIPT_PATH_RE = re.compile(r"(?<![\w.-])(\.github/scripts/[\w.-]+\.sh)\b")

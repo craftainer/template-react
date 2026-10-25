@@ -197,7 +197,14 @@ on them or double-publishing.
 The `release` job is re-runnable too: if the release already exists it
 skips `finalize` and the release creation (a leftover draft is deleted and
 recreated), so re-running failed jobs after a later job failed does not
-fail on the existing release. If `release` itself failed before the release
+fail on the existing release. It first checks that the existing
+release's tag points at the commit this run built, and fails (rather than
+warns) if the tag can't be resolved or points elsewhere. The tag lookup is
+tried up to three times, but only for a transient failure (HTTP 5xx or 429,
+or a network error). A tag that does not exist (the API answers 404, or 422
+"No commit found") or any other permanent error fails at once with a message
+saying so; re-running cannot help, so restore the tag or delete the release
+and run the workflow again. If `release` itself failed before the release
 existed, `finalize` runs again on the re-run, so an instance's `finalize`
 must be safe to repeat (it must not double-apply its side effects).
 `verify-published` runs only after `publish-packages` succeeded, so after a
@@ -206,8 +213,16 @@ the failed jobs, which then runs it.
 
 Two runs for the same tag cannot overlap in the `release` job: it sits in a
 `concurrency` group named after the tag (`cancel-in-progress: false`), so the
-second waits and then sees the published release. GitHub keeps at most one
-waiting run per group, and a newer waiting run replaces it.
+second waits and then sees the published release. If that release was cut
+from a different commit than the waiting run's (two dispatches that computed
+the same tag), the waiting run fails instead of publishing its own `dist/`
+under that version (detected only here, after the per-arch images of both runs were
+pushed). GitHub keeps at most one waiting run per group, and a
+newer waiting run replaces it.
+
+Re-run only the *failed jobs* of a run. "Re-run all jobs" runs `version`
+again, which sees the tag the first attempt created and computes the next
+version, so it cuts another release instead of finishing the first.
 
 In `release-check`, if `dist/` holds files owned by another user (the
 devcontainer ran as root), the job takes them over with `sudo`, which must
@@ -508,6 +523,15 @@ with the result. It never pushes directly or auto-merges; a genuine
 resolve. An instance that predates this workflow bootstraps its
 `.github/template-sync-state.json` via the workflow's manual
 `initial_sync_tag`/`template_repo` inputs first.
+
+The workflow runs `template_sync.py apply` from the *new* tag's checkout,
+with that tag's manifest. Do the same when applying a sync by hand: the
+instance's own copy of the script is the old release's, and an older one
+does not expand glob entries such as `scripts/release-*.sh`, so it skips
+those files (a second run with the new script then picks them up). `apply`
+is meant to run once per tag pair: the state file moves to the new tag
+afterwards. Running it again is harmless for files already merged cleanly,
+but it merges a hand-resolved conflict again and re-creates its markers.
 
 An instance that isn't itself a template shouldn't edit that manifest to
 list its own files (`src/`, say): it's `merge`-tier, so edits would

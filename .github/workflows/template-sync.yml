@@ -143,8 +143,15 @@ jobs:
             --new-ref /tmp/template-new \
             --instance-root "$GITHUB_WORKSPACE" \
             > /tmp/apply-summary.json
-          echo "conflicts=$?" >> "$GITHUB_OUTPUT"
+          rc=$?
           set -e
+          # Exit codes: 0 clean, 1 merge conflicts, 2 error. An error must
+          # fail the job here, before the sync state is advanced.
+          if [ "$rc" -gt 1 ]; then
+            echo "::error::template_sync.py apply failed (exit $rc); not advancing the sync state."
+            exit "$rc"
+          fi
+          echo "conflicts=$rc" >> "$GITHUB_OUTPUT"
           cat /tmp/apply-summary.json
 
       - name: Update sync state
