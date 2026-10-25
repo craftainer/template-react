@@ -36,7 +36,9 @@ jobs:
       # missing label, no ANTHROPIC_API_KEY...), so no artifact was ever
       # uploaded. actions/download-artifact has no "if not found" option
       # and fails the step in that case, so look the artifact up first
-      # and run the rest only when it exists. The download itself stays
+      # and run the rest only when it exists. An artifact that exists but
+      # has expired (they live one day) fails the job: a result was
+      # produced and can no longer be applied. The download itself stays
       # strict, so a real failure (API error, digest mismatch) still
       # fails the job.
       - name: Check for moderation result

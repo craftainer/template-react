@@ -32,8 +32,20 @@ replace:
   # docs/TEMPLATE.md's "Instance extension points") rather than by editing
   # them, so a sync can overwrite them safely.
   - .claude/hooks/self-check.sh
-  - .claude/skills/
-  - .claude/agents/
+  # Listed one by one, not as a glob: instances add their own skills and
+  # agents under ignore (.claude/skills/<name>/, .claude/agents/<name>.md).
+  # When base deletes a skill or agent, keep its line here as a tombstone:
+  # sync reads only the new ref's manifest and removes a replace path only
+  # if some pattern still matches it in the old ref, so dropping the line
+  # together with the files would leave them in every instance.
+  - .claude/skills/owasp-scan/
+  - .claude/skills/plan-creation/
+  - .claude/skills/plan-execution/
+  - .claude/agents/plan-executor.md
+  # template-react's own skills (not base's), template-owned for its
+  # instances. Never reuse a base skill or agent name for these.
+  - .claude/skills/frontend-design/
+  - .claude/skills/ui-verify/
   - .devcontainer/compose.yml
   - .devcontainer/devcontainer-lock.json
   - .devcontainer/resolve-ssh-agent.sh

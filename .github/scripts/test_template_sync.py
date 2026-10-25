@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import json
 import os
 import re
 import shutil
@@ -21,8 +22,10 @@ from pathlib import Path
 from unittest import mock
 
 import template_sync
+import template_sync_manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS_DIR = Path(__file__).resolve().parent
 
 
 def is_exec(path: Path) -> bool:
@@ -113,6 +116,23 @@ class ApplyReplaceExecutableBitTest(unittest.TestCase):
         self.assertEqual(self.apply("s.sh"), {"updated": [], "removed": []})
         self.assertEqual(target.read_bytes(), b"a\n")
 
+    def test_symlinked_destination_is_not_removed(self) -> None:
+        """A file removed upstream is not deleted when the instance links it elsewhere."""
+        write(self.old / "s.sh", b"x\n", 0o644)
+        target = self.instance / "target.sh"
+        write(target, b"x\n", 0o644)
+        (self.instance / "s.sh").symlink_to(target)
+        self.assertEqual(self.apply("s.sh"), {"updated": [], "removed": []})
+        self.assertTrue((self.instance / "s.sh").is_symlink())
+        self.assertTrue(target.exists())
+
+    def test_removed_upstream_regular_file_is_removed(self) -> None:
+        """The plain removal path still deletes the instance's copy."""
+        write(self.old / "s.sh", b"x\n", 0o644)
+        write(self.instance / "s.sh", b"x\n", 0o644)
+        self.assertEqual(self.apply("s.sh"), {"updated": [], "removed": ["s.sh"]})
+        self.assertFalse((self.instance / "s.sh").exists())
+
 
 class TierPathsGlobTest(unittest.TestCase):
     """``template_sync.tier_paths`` expands glob entries in every tier."""
@@ -159,6 +179,23 @@ class TierPathsGlobTest(unittest.TestCase):
         """Character classes alongside ``*`` work (``docs/adrs/[0-9]*.md``)."""
         self.assertEqual(self.paths("merge", ["docs/adrs/[0-9]*.md"]), {"docs/adrs/0001-x.md"})
 
+    def test_several_globs_walk_the_tree_once(self) -> None:
+        """Each glob is matched against one shared listing, not its own walk."""
+        with mock.patch.object(
+            template_sync, "relative_files", wraps=template_sync.relative_files
+        ) as walk:
+            found = self.paths(
+                "replace", ["scripts/release-*.sh", "cfg/*.json", "docs/adrs/[0-9]*"]
+            )
+        self.assertEqual(walk.call_count, 1)
+        self.assertEqual(len(found), 5)
+
+    def test_literal_entries_never_walk_the_tree(self) -> None:
+        """Only globs need the full listing."""
+        with mock.patch.object(template_sync, "relative_files") as walk:
+            self.paths("replace", ["scripts/other.sh", "cfg/"])
+        walk.assert_not_called()
+
     def test_glob_matching_nothing(self) -> None:
         """A glob that matches nothing contributes no paths and does not fail."""
         self.assertEqual(self.paths("replace", ["scripts/nope-*.sh"]), set())
@@ -199,6 +236,150 @@ class TierPathsGlobTest(unittest.TestCase):
         self.assertEqual(args.func(args), 0)
         self.assertTrue((instance / "scripts/release-a.sh").is_file())
         self.assertFalse((instance / "scripts/other.sh").exists())
+
+
+class InstanceSkillTierTest(unittest.TestCase):
+    """A per-skill ``replace`` entry leaves room for an instance's own skill."""
+
+    def test_base_and_instance_skills_each_match_one_tier(self) -> None:
+        """Base skill dirs match only replace, the instance's only ignore."""
+        tiers = {
+            "replace": [".claude/skills/base-skill/", ".claude/agents/base-agent.md"],
+            "ignore": [".claude/skills/own-skill/", ".claude/agents/own-agent.md"],
+            "merge": [".claude/README.md"],
+        }
+        expected = {
+            ".claude/skills/base-skill/SKILL.md": ["replace"],
+            ".claude/skills/base-skill/references/x.md": ["replace"],
+            ".claude/skills/own-skill/SKILL.md": ["ignore"],
+            ".claude/skills/own-skill/references/x.md": ["ignore"],
+            ".claude/agents/base-agent.md": ["replace"],
+            ".claude/agents/own-agent.md": ["ignore"],
+            ".claude/README.md": ["merge"],
+        }
+        for path, tier in expected.items():
+            self.assertEqual(template_sync_manifest.classify(path, tiers), tier, path)
+
+    def test_whole_directory_replace_overlaps_an_instance_skill(self) -> None:
+        """The old ``.claude/skills/`` entry is why this layout is needed."""
+        tiers = {
+            "replace": [".claude/skills/"],
+            "ignore": [".claude/skills/own-skill/"],
+            "merge": [],
+        }
+        self.assertEqual(
+            template_sync_manifest.classify(".claude/skills/own-skill/SKILL.md", tiers),
+            ["replace", "ignore"],
+        )
+
+    def unlisted_skills_and_agents(self, root: Path) -> list[str]:
+        """Return the skills/agents under ``root`` that are neither ignored nor listed in ``replace``.
+
+        Also asserts the manifest has no whole-directory ``.claude/skills/`` or
+        ``.claude/agents/`` entry. Anything the merged tiers (base manifest plus
+        an instance's local ``ignore`` file) classify as ``ignore`` is an
+        instance's own and is skipped.
+        """
+        manifest = root / ".github/template-sync-manifest.yml"
+        tiers, errors = template_sync_manifest.load_tiers(manifest)
+        self.assertEqual(errors, [])
+        replace = tiers["replace"]
+        self.assertNotIn(".claude/skills/", replace)
+        self.assertNotIn(".claude/agents/", replace)
+        missing = []
+        for skill in sorted((root / ".claude/skills").iterdir()):
+            if not skill.is_dir():
+                continue
+            entry = f".claude/skills/{skill.name}/"
+            if "ignore" in template_sync_manifest.classify(f"{entry}SKILL.md", tiers):
+                continue
+            if entry not in replace:
+                missing.append(entry)
+        for agent in sorted((root / ".claude/agents").glob("*.md")):
+            entry = f".claude/agents/{agent.name}"
+            if "ignore" in template_sync_manifest.classify(entry, tiers):
+                continue
+            if entry not in replace:
+                missing.append(entry)
+        return missing
+
+    def test_base_manifest_lists_skills_individually(self) -> None:
+        """Base's manifest keeps every skill/agent separate, leaving room for an instance's."""
+        self.assertEqual(self.unlisted_skills_and_agents(REPO_ROOT), [])
+
+    def make_layout(self, root: Path, local_ignore: list[str]) -> None:
+        """Write a repo with one listed skill/agent and one unlisted skill/agent."""
+        (root / ".github").mkdir()
+        (root / ".github/template-sync-manifest.yml").write_text(
+            "replace:\n  - .claude/skills/base-skill/\n  - .claude/agents/base-agent.md\n"
+        )
+        if local_ignore:
+            lines = "".join(f"  - {entry}\n" for entry in local_ignore)
+            (root / ".github" / template_sync_manifest.LOCAL_MANIFEST_NAME).write_text(
+                f"ignore:\n{lines}"
+            )
+        for name in ("base-skill", "extra-skill"):
+            (root / ".claude/skills" / name).mkdir(parents=True)
+            (root / ".claude/skills" / name / "SKILL.md").write_text(name)
+        (root / ".claude/agents").mkdir(parents=True, exist_ok=True)
+        for name in ("base-agent", "extra-agent"):
+            (root / f".claude/agents/{name}.md").write_text(name)
+
+    def test_guard_skips_ignored_instance_skill_and_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_layout(root, [".claude/skills/extra-skill/", ".claude/agents/extra-agent.md"])
+            self.assertEqual(self.unlisted_skills_and_agents(root), [])
+
+    def test_guard_catches_unlisted_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_layout(root, [".claude/agents/extra-agent.md"])
+            self.assertEqual(self.unlisted_skills_and_agents(root), [".claude/skills/extra-skill/"])
+
+    def test_guard_catches_unlisted_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_layout(root, [".claude/skills/extra-skill/"])
+            self.assertEqual(
+                self.unlisted_skills_and_agents(root), [".claude/agents/extra-agent.md"]
+            )
+
+    def test_apply_removes_tombstoned_skill_and_spares_instance_skill(self) -> None:
+        """A deleted base skill's kept ``replace`` line lets sync remove it from instances."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old, new, instance = root / "old", root / "new", root / "instance"
+            files = {
+                old: {"gone": "old gone", "kept": "old kept"},
+                new: {"kept": "new kept"},
+                instance: {"gone": "old gone", "kept": "old kept", "mine": "mine"},
+            }
+            for base, skills in files.items():
+                for name, text in skills.items():
+                    f = base / ".claude/skills" / name / "SKILL.md"
+                    f.parent.mkdir(parents=True)
+                    f.write_text(text)
+            manifest = root / "manifest.yml"
+            manifest.write_text("replace:\n  - .claude/skills/gone/\n  - .claude/skills/kept/\n")
+            args = template_sync.build_parser().parse_args(
+                [
+                    "apply",
+                    "--manifest",
+                    str(manifest),
+                    "--old-ref",
+                    str(old),
+                    "--new-ref",
+                    str(new),
+                    "--instance-root",
+                    str(instance),
+                ]
+            )
+            self.assertEqual(args.func(args), 0)
+            skills = instance / ".claude/skills"
+            self.assertFalse((skills / "gone/SKILL.md").exists())
+            self.assertEqual((skills / "kept/SKILL.md").read_text(), "new kept")
+            self.assertEqual((skills / "mine/SKILL.md").read_text(), "mine")
 
 
 class ApplyMergeTest(unittest.TestCase):
@@ -251,7 +432,7 @@ class ApplyMergeTest(unittest.TestCase):
 
 
 class MergeFileErrorTest(unittest.TestCase):
-    """``git merge-file`` exit 255 is an error, not a conflict."""
+    """``git merge-file`` errors raise; only binary input and real conflicts report True."""
 
     def setUp(self) -> None:
         """Create a temp dir for the three merge inputs."""
@@ -285,30 +466,55 @@ class MergeFileErrorTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             template_sync.merge_file(self.root / "ours", self.root / "base", self.root / "none")
 
-    def test_binary_file_error_propagates_from_apply_merge(self) -> None:
-        """A binary merge-tier file fails the sync rather than landing in ``conflicts``."""
+    def test_binary_file_is_a_conflict_and_left_untouched(self) -> None:
+        """A binary merge-tier file lands in ``conflicts``; the instance keeps its bytes."""
+        # Regression: git exits 255 for binary input, which became a sync-wide exit 2.
         old, new, instance = (self.root / n for n in ("old", "new", "instance"))
         write(old / "b.bin", b"a\x00b\n", 0o644)
         write(new / "b.bin", b"a\x00c\n", 0o644)
         write(instance / "b.bin", b"a\x00d\n", 0o644)
-        with self.assertRaises(RuntimeError):
-            template_sync.apply_merge(old, new, instance, {"b.bin"})
+        result = template_sync.apply_merge(old, new, instance, {"b.bin"})
+        self.assertEqual(result, {"merged": [], "conflicts": ["b.bin"]})
+        self.assertEqual((instance / "b.bin").read_bytes(), b"a\x00d\n")
 
-    def test_cmd_apply_returns_error_code_on_merge_error(self) -> None:
-        """``apply`` exits 2 (not the conflict code 1) when a merge errors."""
-        manifest = self.root / "manifest.yml"
-        manifest.write_text("")
-        args = argparse.Namespace(
-            manifest=manifest, old_ref=self.root, new_ref=self.root, instance_root=self.root
-        )
-        with (
-            mock.patch.object(template_sync, "parse_manifest", return_value={}),
-            mock.patch.object(template_sync, "tier_paths", return_value=set()),
-            mock.patch.object(template_sync, "apply_replace", return_value={}),
-            mock.patch.object(template_sync, "apply_merge", side_effect=RuntimeError("boom")),
-            contextlib.redirect_stderr(io.StringIO()),
-        ):
-            self.assertEqual(template_sync.cmd_apply(args), 2)
+    def test_binary_file_untouched_by_the_instance_is_updated(self) -> None:
+        """A binary file the instance never changed takes the new version, no conflict."""
+        old, new, instance = (self.root / n for n in ("old", "new", "instance"))
+        write(old / "b.bin", b"a\x00b\n", 0o644)
+        write(new / "b.bin", b"a\x00c\n", 0o644)
+        write(instance / "b.bin", b"a\x00b\n", 0o644)
+        result = template_sync.apply_merge(old, new, instance, {"b.bin"})
+        self.assertEqual(result, {"merged": ["b.bin"], "conflicts": []})
+        self.assertEqual((instance / "b.bin").read_bytes(), b"a\x00c\n")
+
+    def test_binary_file_already_at_the_new_version_is_skipped(self) -> None:
+        """An instance binary equal to the new one is neither merged nor a conflict."""
+        old, new, instance = (self.root / n for n in ("old", "new", "instance"))
+        write(old / "b.bin", b"a\x00b\n", 0o644)
+        write(new / "b.bin", b"a\x00c\n", 0o644)
+        write(instance / "b.bin", b"a\x00c\n", 0o644)
+        result = template_sync.apply_merge(old, new, instance, {"b.bin"})
+        self.assertEqual(result, {"merged": [], "conflicts": []})
+
+    def test_binary_new_file_without_prior_version_is_a_conflict(self) -> None:
+        """A newly merge-tier binary file has no base; it is still a conflict, not an error."""
+        old, new, instance = (self.root / n for n in ("old", "new", "instance"))
+        write(new / "b.bin", b"a\x00c\n", 0o644)
+        write(instance / "b.bin", b"a\x00d\n", 0o644)
+        result = template_sync.apply_merge(old, new, instance, {"b.bin"})
+        self.assertEqual(result["conflicts"], ["b.bin"])
+
+
+class CmdApplyExitCodeTest(unittest.TestCase):
+    """``template_sync.cmd_apply`` exits 2 on any error, never the traceback's 1 (= conflicts)."""
+
+    def setUp(self) -> None:
+        """Create a temp dir and an empty manifest."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.manifest = self.root / "manifest.yml"
+        self.manifest.write_text("")
 
     def _apply_args(self, manifest: Path) -> argparse.Namespace:
         """Build ``apply`` arguments over empty checkouts and the given manifest."""
@@ -321,39 +527,216 @@ class MergeFileErrorTest(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             return template_sync.cmd_apply(args)
 
-    def test_cmd_apply_returns_error_code_on_missing_manifest(self) -> None:
+    def test_returns_error_code_on_merge_error(self) -> None:
+        """``apply`` exits 2 (not the conflict code 1) when a merge errors."""
+        with (
+            mock.patch.object(template_sync, "parse_manifest", return_value={}),
+            mock.patch.object(template_sync, "tier_paths", return_value=set()),
+            mock.patch.object(template_sync, "apply_replace", return_value={}),
+            mock.patch.object(template_sync, "apply_merge", side_effect=RuntimeError("boom")),
+        ):
+            self.assertEqual(self._exit_code(self._apply_args(self.manifest)), 2)
+
+    def test_returns_error_code_on_missing_manifest(self) -> None:
         """An unreadable manifest is an error (2), not an uncaught traceback (1)."""
         self.assertEqual(self._exit_code(self._apply_args(self.root / "absent.yml")), 2)
 
-    def test_cmd_apply_returns_error_code_on_undecodable_manifest(self) -> None:
+    def test_returns_error_code_on_undecodable_manifest(self) -> None:
         """A manifest that is not UTF-8 (UnicodeDecodeError) exits 2."""
-        manifest = self.root / "manifest.yml"
-        manifest.write_bytes(b"\xff\xfe")
-        self.assertEqual(self._exit_code(self._apply_args(manifest)), 2)
+        self.manifest.write_bytes(b"\xff\xfe")
+        self.assertEqual(self._exit_code(self._apply_args(self.manifest)), 2)
 
-    def test_cmd_apply_returns_error_code_on_tier_paths_failure(self) -> None:
+    def test_returns_error_code_on_tier_paths_failure(self) -> None:
         """A failure while expanding tiers to paths exits 2."""
-        manifest = self.root / "manifest.yml"
-        manifest.write_text("")
         with mock.patch.object(template_sync, "tier_paths", side_effect=OSError("denied")):
-            self.assertEqual(self._exit_code(self._apply_args(manifest)), 2)
+            self.assertEqual(self._exit_code(self._apply_args(self.manifest)), 2)
 
-    def test_cmd_apply_returns_error_code_on_unexpected_exception(self) -> None:
+    def test_returns_error_code_on_unexpected_exception(self) -> None:
         """Even a bug (here a KeyError) exits 2, not the traceback's 1 (= conflicts)."""
-        manifest = self.root / "manifest.yml"
-        manifest.write_text("")
         with mock.patch.object(template_sync, "tier_paths", side_effect=KeyError("bug")):
-            self.assertEqual(self._exit_code(self._apply_args(manifest)), 2)
+            self.assertEqual(self._exit_code(self._apply_args(self.manifest)), 2)
 
-    def test_cmd_apply_does_not_catch_base_exceptions(self) -> None:
+    def test_does_not_catch_base_exceptions(self) -> None:
         """Ctrl-C and ``SystemExit`` still propagate."""
-        manifest = self.root / "manifest.yml"
-        manifest.write_text("")
         with (
             mock.patch.object(template_sync, "tier_paths", side_effect=KeyboardInterrupt),
             self.assertRaises(KeyboardInterrupt),
         ):
-            self._exit_code(self._apply_args(manifest))
+            self._exit_code(self._apply_args(self.manifest))
+
+    def test_logs_the_traceback(self) -> None:
+        """The traceback reaches stderr, so a crash is diagnosable from the job log."""
+        with (
+            mock.patch.object(template_sync, "tier_paths", side_effect=KeyError("bug")),
+            self.assertLogs(template_sync.log, level="ERROR") as logged,
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            template_sync.cmd_apply(self._apply_args(self.manifest))
+        self.assertIn("KeyError", "".join(logged.output))
+
+    def test_source_has_no_blanket_except_suppression(self) -> None:
+        """No ``noqa: BLE001``: instances that don't select BLE flag it as unused (RUF100)."""
+        self.assertNotIn("noqa: BLE", Path(template_sync.__file__).read_text())
+
+
+class CheckApplyTest(unittest.TestCase):
+    """``check-apply`` stops a crash that exits 1 from being read as merge conflicts."""
+
+    def setUp(self) -> None:
+        """Create a temp dir for the summary file."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.summary = Path(self._tmp.name) / "summary.json"
+
+    def check(self, exit_code: int) -> tuple[int, str]:
+        """Run ``cmd_check_apply``; return its status and stdout."""
+        args = argparse.Namespace(exit_code=exit_code, summary=self.summary)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            return template_sync.cmd_check_apply(args), out.getvalue()
+
+    def write_summary(self, conflicts: list[str]) -> None:
+        """Write an ``apply``-shaped summary with the given conflicts."""
+        self.summary.write_text(
+            json.dumps({"replace": {}, "merge": {"merged": [], "conflicts": conflicts}})
+        )
+
+    def test_clean_run(self) -> None:
+        """Exit 0 with a conflict-free summary passes."""
+        self.write_summary([])
+        self.assertEqual(self.check(0), (0, "conflicts=0\n"))
+
+    def test_conflicts(self) -> None:
+        """Exit 1 with listed conflicts passes and reports them."""
+        self.write_summary(["a.txt"])
+        self.assertEqual(self.check(1), (0, "conflicts=1\n"))
+
+    def test_crash_exiting_1_with_empty_summary_fails(self) -> None:
+        """A SyntaxError exits 1 with nothing on stdout: not conflicts."""
+        self.summary.write_text("")
+        self.assertEqual(self.check(1), (2, ""))
+
+    def test_missing_summary_fails(self) -> None:
+        """No summary file at all fails for either status."""
+        self.assertEqual(self.check(0)[0], 2)
+        self.assertEqual(self.check(1)[0], 2)
+
+    def test_exit_1_without_conflicts_fails(self) -> None:
+        """Exit 1 contradicting a conflict-free summary fails."""
+        self.write_summary([])
+        self.assertEqual(self.check(1)[0], 2)
+
+    def test_exit_0_with_conflicts_fails(self) -> None:
+        """Exit 0 contradicting listed conflicts fails."""
+        self.write_summary(["a.txt"])
+        self.assertEqual(self.check(0)[0], 2)
+
+    def test_malformed_summary_fails(self) -> None:
+        """A summary of the wrong shape fails."""
+        self.summary.write_text('{"merge": []}')
+        self.assertEqual(self.check(1)[0], 2)
+
+    def test_error_exit_fails(self) -> None:
+        """Exit 2 (or any other status) fails even with a valid summary."""
+        self.write_summary([])
+        self.assertEqual(self.check(2)[0], 2)
+
+    def test_workflow_calls_check_apply_before_advancing_state(self) -> None:
+        """The sync workflow routes ``apply``'s status through ``check-apply``."""
+        text = (REPO_ROOT / ".github/workflows/template-sync.yml").read_text()
+        self.assertIn("template_sync.py check-apply", text)
+        self.assertLess(text.index("check-apply"), text.index("name: Update sync state"))
+
+
+def _apply_step_script() -> str:
+    """Return the shell of the ``Apply replace and merge tiers`` step of template-sync.yml."""
+    text = (REPO_ROOT / ".github/workflows/template-sync.yml").read_text()
+    step = re.search(
+        r"- name: Apply replace and merge tiers\n.*?\n        run: \|\n(.*?)\n\n      - name:",
+        text,
+        re.DOTALL,
+    )
+    assert step is not None  # noqa: S101 -- test helper
+    return "\n".join(line[10:] for line in step.group(1).splitlines())
+
+
+class ApplyStepTest(unittest.TestCase):
+    """The workflow's apply step keeps ``apply``'s exit status and fails closed."""
+
+    FAKE = (
+        "import json, os, sys\n"
+        f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
+        "if sys.argv[1] == 'apply':\n"
+        "    print(os.environ['FAKE_SUMMARY'])\n"
+        "    raise SystemExit(int(os.environ['FAKE_RC']))\n"
+        "import template_sync\n"
+        "raise SystemExit(template_sync.main())\n"
+    )
+
+    def run_step(self, rc: int, summary: str) -> tuple[subprocess.CompletedProcess[str], str]:
+        """Run the step with a fake ``apply``; return the process and ``$GITHUB_OUTPUT``."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / "template-new/.github/scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "template_sync.py").write_text(self.FAKE)
+            out = root / "output"
+            out.touch()
+            script = _apply_step_script().replace("/tmp/", f"{tmp}/")
+            result = subprocess.run(  # noqa: S603 -- fixed argv
+                ["bash", "-e", "-c", script],  # noqa: S607
+                env={
+                    **os.environ,
+                    "GITHUB_OUTPUT": str(out),
+                    "GITHUB_WORKSPACE": tmp,
+                    "FAKE_RC": str(rc),
+                    "FAKE_SUMMARY": summary,
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            return result, out.read_text()
+
+    CLEAN = json.dumps({"replace": {}, "merge": {"merged": [], "conflicts": []}})
+    CONFLICTS = json.dumps({"replace": {}, "merge": {"merged": [], "conflicts": ["a"]}})
+
+    def test_clean_and_conflicts_pass(self) -> None:
+        """Exit 0 and exit 1 with a matching summary pass and print the summary."""
+        for rc, summary, output in (
+            (0, self.CLEAN, "conflicts=0"),
+            (1, self.CONFLICTS, "conflicts=1"),
+        ):
+            result, out = self.run_step(rc, summary)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(out.strip(), output)
+            self.assertIn(summary, result.stdout)
+
+    def test_error_exit_is_preserved(self) -> None:
+        """An ``apply`` error (2) fails the job with 2, not 1, and names the status."""
+        result, out = self.run_step(2, self.CLEAN)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("exit 2", result.stdout + result.stderr)
+        self.assertEqual(out, "")
+
+    def test_other_statuses_are_preserved(self) -> None:
+        """A kill signal's status (137) is reported as such."""
+        result, _ = self.run_step(137, "")
+        self.assertEqual(result.returncode, 137, result.stderr)
+
+    def test_crash_exiting_1_fails_closed(self) -> None:
+        """Exit 1 without a conflict summary is a crash: the job fails, with an error status."""
+        result, out = self.run_step(1, "")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(out, "")
+
+    def test_summary_is_not_printed_as_valid_before_validation(self) -> None:
+        """A rejected summary is printed only under a "not validated" label."""
+        result, _ = self.run_step(2, self.CLEAN)
+        text = result.stdout
+        self.assertIn("not validated", text)
+        self.assertLess(text.index("not validated"), text.index(self.CLEAN))
 
 
 _SCRIPT_PATH_RE = re.compile(r"(?<![\w.-])(\.github/scripts/[\w.-]+\.sh)\b")

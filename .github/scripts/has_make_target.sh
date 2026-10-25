@@ -6,6 +6,11 @@
 # Exit:  0 = defined, 1 = not defined, 2 = usage error, or the Makefile
 #        failed to parse (make's output is printed).
 #
+# Known limit: no recipe runs, but make still evaluates the Makefile's
+# parse-time constructs, which no flag turns off: `$(shell ...)` in a `:=`
+# assignment or a rule head, and `include`/`-include`. A Makefile that does
+# real work there does it here too (as it already does for every `make` call).
+#
 # Depends on GNU make's `-p` dump format (tested with 4.3 and 4.4); another
 # make implementation is not supported.
 #

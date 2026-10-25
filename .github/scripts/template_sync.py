@@ -15,6 +15,8 @@ Subcommands:
   between two template checkouts (the previously-synced tag and the new one)
   and the instance's own working tree; print a summary and list any
   merge conflicts.
+- ``check-apply``: confirm an ``apply`` exit status of 0 or 1 against its summary
+  file, so a crash that exits 1 is not read as merge conflicts.
 - ``read-state`` / ``write-state``: get/set
   ``../template-sync-state.json``.
 """
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import shutil
@@ -30,7 +33,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import traceback
 from datetime import date
 from pathlib import Path
 
@@ -47,10 +49,14 @@ EXIT_ERROR = 2
 MAX_CONFLICTS = 127
 # The monthly cadence runs only in the first week of the month: day 1-7.
 FIRST_WEEK_LAST_DAY = 7
+# ``git merge-file`` decides "binary" from a NUL byte in the first 8000 bytes.
+BINARY_PROBE_BYTES = 8000
 PRE_ORDER = {"alpha": 0, "beta": 1, "rc": 2}
 CHANNELS = ("stable", "alpha", "beta", "rc")
 
 ParsedTag = tuple[int, int, int, str | None, int]
+
+log = logging.getLogger(__name__)
 
 
 def parse_tag(tag: str) -> ParsedTag | None:
@@ -151,12 +157,10 @@ def relative_files_under(root: Path, rel_dir: str) -> list[str]:
     return [p.relative_to(root).as_posix() for p in base.rglob("*") if p.is_file()]
 
 
-def relative_files_matching(root: Path, pattern: str) -> list[str]:
-    """Return every regular file under ``root`` matching the glob ``pattern``.
+def relative_files(root: Path) -> list[str]:
+    """Return every regular file under ``root`` as root-relative POSIX paths.
 
-    Uses the manifest's own ``matches`` (``*`` spans ``/``), so what sync
-    expands is exactly what the completeness check classifies. ``.git`` is
-    skipped. A pattern that matches nothing yields an empty list.
+    ``.git`` is skipped. A missing ``root`` yields an empty list.
     """
     if not root.is_dir():
         return []
@@ -165,20 +169,39 @@ def relative_files_matching(root: Path, pattern: str) -> list[str]:
         if ".git" in dirnames:
             dirnames.remove(".git")  # don't descend into git metadata
         for name in filenames:
-            rel = (Path(dirpath) / name).relative_to(root).as_posix()
-            if (Path(dirpath) / name).is_file() and matches(rel, pattern):
-                found.append(rel)
+            path = Path(dirpath) / name
+            if path.is_file():
+                found.append(path.relative_to(root).as_posix())
     return found
+
+
+def relative_files_matching(
+    root: Path, pattern: str, listing: list[str] | None = None
+) -> list[str]:
+    """Return every regular file under ``root`` matching the glob ``pattern``.
+
+    Uses the manifest's own ``matches`` (``*`` spans ``/``), so what sync
+    expands is exactly what the completeness check classifies. ``.git`` is
+    skipped. A pattern that matches nothing yields an empty list. Pass
+    ``listing`` (from ``relative_files``) to match several patterns against
+    one walk of the tree.
+    """
+    if listing is None:
+        listing = relative_files(root)
+    return [rel for rel in listing if matches(rel, pattern)]
 
 
 def tier_paths(root: Path, tiers: dict[str, list[str]], tier: str) -> set[str]:
     """Return every file under ``root`` classified into ``tier`` by the manifest."""
     candidates: set[str] = set()
+    listing: list[str] | None = None  # walked once, and only if a glob needs it
     for pattern in tiers[tier]:
         # Same glob test as template_sync_manifest.matches: only "*"/"?" make
         # a pattern a glob; "[...]" counts only alongside one of them.
         if "*" in pattern or "?" in pattern:
-            candidates.update(relative_files_matching(root, pattern))
+            if listing is None:
+                listing = relative_files(root)
+            candidates.update(relative_files_matching(root, pattern, listing))
             continue
         rel = pattern.rstrip("/") if pattern.endswith("/") else pattern
         candidates.update(relative_files_under(root, rel))
@@ -229,21 +252,37 @@ def apply_replace(
     removed: list[str] = []
     for path in sorted(old_paths - new_paths):
         dst = instance_root / path
+        if dst.is_symlink():
+            continue  # as above: the instance deliberately links it.
         if dst.exists():
             dst.unlink()
             removed.append(path)
     return {"updated": updated, "removed": removed}
 
 
+def is_binary(path: Path) -> bool:
+    """Whether ``path`` looks binary to ``git merge-file`` (a NUL in its first 8000 bytes)."""
+    try:
+        with path.open("rb") as handle:
+            return b"\0" in handle.read(BINARY_PROBE_BYTES)
+    except OSError:
+        return False  # unreadable or missing: let git report it as the error it is
+
+
 def merge_file(instance_file: Path, base_file: Path, theirs_file: Path) -> bool:
     """3-way merge ``theirs_file`` into ``instance_file`` in place; True on conflict.
 
+    Binary input cannot be merged line by line: it counts as a conflict and the
+    instance's file is left as it is, for a person to resolve. Otherwise
     ``git merge-file`` exits with the number of conflicts, capped at
-    ``MAX_CONFLICTS`` (127). Any other status is an error, such as a binary or
-    unreadable file (git exits 255) or a signal kill (negative status). An
+    ``MAX_CONFLICTS`` (127); per git-merge-file(1) its exit value is "negative on
+    error", which a shell sees as 128-255 (255 for -1). Any other status is an
+    error, such as an unreadable file or a signal kill (negative status). An
     error is not a conflict: raise instead of reporting it as one, so the sync
     fails loudly rather than leaving a half-merged file.
     """
+    if any(is_binary(path) for path in (instance_file, base_file, theirs_file)):
+        return True
     result = subprocess.run(  # noqa: S603 -- "git" via PATH, a trusted CI/dev tool
         ["git", "merge-file", str(instance_file), str(base_file), str(theirs_file)],  # noqa: S607
         capture_output=True,
@@ -282,9 +321,18 @@ def apply_merge(
             merged.append(path)
             continue
         base_content = old_file.read_bytes() if old_file.exists() else b""
-        if new_file.read_bytes() == base_content:
+        new_content = new_file.read_bytes()
+        if new_content == base_content:
             continue  # unchanged upstream since the last sync
         before = instance_file.read_bytes()
+        if before == new_content:
+            continue  # the instance already has the new version
+        if old_file.exists() and before == base_content:
+            # Untouched by the instance: take the new version outright. Git
+            # would do the same for text; a binary file can only be merged this way.
+            shutil.copy2(new_file, instance_file)
+            merged.append(path)
+            continue
         if old_file.exists():
             conflicted = merge_file(instance_file, old_file, new_file)
         else:
@@ -302,8 +350,12 @@ def apply_merge(
 def cmd_apply(args: argparse.Namespace) -> int:
     """Apply the replace and merge tiers, printing a JSON summary to stdout.
 
-    Exit status: 0 clean, 1 merge conflicts (summary printed), 2 error (nothing
-    printed to stdout; the caller must fail and not advance the sync state).
+    Exit status: 0 clean, 1 merge conflicts (summary printed), 2 error (no
+    summary on stdout; the caller must fail and not advance the sync state).
+
+    Not atomic: files are written one by one, so on exit 2 the replace/merge
+    writes made before the error stay on disk. CI is safe because the runner's
+    checkout is discarded and the sync state does not advance.
     """
     try:
         tiers = parse_manifest(args.manifest.read_text())
@@ -317,14 +369,48 @@ def cmd_apply(args: argparse.Namespace) -> int:
             "replace": apply_replace(args.old_ref, args.new_ref, args.instance_root, replace_paths),
             "merge": apply_merge(args.old_ref, args.new_ref, args.instance_root, merge_paths),
         }
-    except Exception as err:  # noqa: BLE001 -- any failure must exit 2, never an uncaught 1
-        # An uncaught exception exits 1, which the workflow reads as "conflicts".
-        # BaseException (Ctrl-C, SystemExit) is deliberately left alone.
-        traceback.print_exc()
+    except Exception as err:
+        # Any failure must exit 2: an uncaught exception exits 1, which reads
+        # as "conflicts". BaseException (Ctrl-C, SystemExit) is deliberately
+        # left alone. Logging the traceback is what keeps ruff's blind-except
+        # rule quiet without a ``noqa`` that instances not selecting BLE would flag.
+        log.exception("apply failed")
         print(f"error: {type(err).__name__}: {err}", file=sys.stderr)
         return EXIT_ERROR
     print(json.dumps(summary, indent=2))
     return EXIT_CONFLICTS if summary["merge"]["conflicts"] else 0
+
+
+def cmd_check_apply(args: argparse.Namespace) -> int:
+    """Validate an ``apply`` run's exit status against the summary it wrote.
+
+    ``apply`` exits 1 for conflicts, but so does any crash before its own
+    handler exists (an import-time ``SyntaxError``, say), and that leaves an
+    empty summary. Trust a status of 0 or 1 only when the summary parses and
+    agrees with it. Prints ``conflicts=0|1`` and returns 0, or returns 2.
+    """
+    if args.exit_code not in (0, EXIT_CONFLICTS):
+        print(
+            f"::error::apply failed (exit {args.exit_code}); not advancing the sync state.",
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+    try:
+        conflicts = json.loads(args.summary.read_text())["merge"]["conflicts"]
+        agrees = isinstance(conflicts, list) and bool(conflicts) == (
+            args.exit_code == EXIT_CONFLICTS
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        agrees = False
+    if not agrees:
+        print(
+            f"::error::apply exited {args.exit_code} without a matching summary in "
+            f"{args.summary} (a crash, not conflicts); not advancing the sync state.",
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+    print(f"conflicts={args.exit_code}")
+    return 0
 
 
 def pr_body(summary: dict[str, dict[str, list[str]]], old_tag: str, new_tag: str, repo: str) -> str:
@@ -341,7 +427,9 @@ def pr_body(summary: dict[str, dict[str, list[str]]], old_tag: str, new_tag: str
     if summary["merge"]["conflicts"]:
         lines += [
             "",
-            "One or more files above have `<<<<<<<` conflict markers to resolve before merging.",
+            "One or more files above have `<<<<<<<` conflict markers to resolve before merging "
+            "(a binary file has none: it is left at the instance's version, so take the new "
+            "one from the template's new tag).",
         ]
     if "pyproject.toml" in summary["merge"]["merged"] + summary["merge"]["conflicts"]:
         lines += [
@@ -389,6 +477,11 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("--new-ref", type=Path, required=True)
     apply_cmd.add_argument("--instance-root", type=Path, required=True)
     apply_cmd.set_defaults(func=cmd_apply)
+
+    check_apply = subparsers.add_parser("check-apply")
+    check_apply.add_argument("--exit-code", type=int, required=True)
+    check_apply.add_argument("--summary", type=Path, required=True)
+    check_apply.set_defaults(func=cmd_check_apply)
 
     pr_body_cmd = subparsers.add_parser("pr-body")
     pr_body_cmd.add_argument("--summary", type=Path, required=True)

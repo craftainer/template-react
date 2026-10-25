@@ -16,6 +16,7 @@ SCRIPTS = Path(__file__).resolve().parent
 FAKE_GH = """#!/usr/bin/env bash
 printf '%s\\n' "$@" > "$FAKE_ARGS"
 [ -z "${FAKE_FAIL:-}" ] || { echo "gh: boom (HTTP 500)" >&2; exit 1; }
+[ -z "${FAKE_EMPTY:-}" ] || exit 0
 while [ $# -gt 0 ] && [ "$1" != "--jq" ]; do shift; done
 [ $# -gt 0 ] || { echo "fake gh: no --jq" >&2; exit 3; }
 jq -r "$2" "$FAKE_RESPONSE"
@@ -36,7 +37,7 @@ class FindModerationResultTest(unittest.TestCase):
         gh.chmod(0o755)
 
     def run_script(
-        self, artifacts: list[dict[str, object]], *, fail: bool = False
+        self, artifacts: list[dict[str, object]], *, fail: bool = False, empty: bool = False
     ) -> subprocess.CompletedProcess[str]:
         """Run the script against a canned artifacts response."""
         (self.tmp / "response.json").write_text(json.dumps({"artifacts": artifacts}))
@@ -47,6 +48,7 @@ class FindModerationResultTest(unittest.TestCase):
             "FAKE_ARGS": str(self.tmp / "args.txt"),
             "GITHUB_OUTPUT": str(self.tmp / "output.txt"),
             "FAKE_FAIL": "1" if fail else "",
+            "FAKE_EMPTY": "1" if empty else "",
         }
         return subprocess.run(  # noqa: S603 -- fixed argv, trusted script
             [str(SCRIPTS / "find_moderation_result.sh"), "o/r", "42"],
@@ -80,13 +82,31 @@ class FindModerationResultTest(unittest.TestCase):
         self.assertEqual(self.output(), "found=false")
         self.assertNotIn("::notice::", result.stdout)
 
-    def test_expired_artifact_logs_a_notice(self) -> None:
-        """An expired artifact is ``found=false`` with an explicit notice."""
+    def test_expired_artifact_fails_the_script(self) -> None:
+        """An expired artifact means a produced result was lost: fail, never go green."""
         result = self.run_script([{"name": "moderation-result", "expired": True}])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("::error::", result.stderr)
+        self.assertIn("expired", result.stderr)
+        self.assertFalse((self.tmp / "output.txt").exists())
+
+    def test_live_artifact_wins_over_an_expired_one(self) -> None:
+        """A re-run's fresh artifact is found even if an older one expired."""
+        result = self.run_script(
+            [
+                {"name": "moderation-result", "expired": True},
+                {"name": "moderation-result", "expired": False},
+            ]
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.output(), "found=false")
-        self.assertIn("::notice::", result.stdout)
-        self.assertIn("expired", result.stdout)
+        self.assertEqual(self.output(), "found=true")
+
+    def test_empty_response_fails_closed(self) -> None:
+        """``gh`` succeeding with no output is not 'no result': fail, write nothing."""
+        result = self.run_script([], empty=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unexpected artifact lookup result", result.stderr)
+        self.assertFalse((self.tmp / "output.txt").exists())
 
     def test_api_failure_fails_the_script(self) -> None:
         """A failing ``gh`` is an error, never reported as 'no result'."""
