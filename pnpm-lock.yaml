@@ -133,11 +133,11 @@ importers:
   .:
     dependencies:
       "@craftainer/crud-sdk":
-        specifier: 0.5.0
-        version: 0.5.0(@tanstack/query-core@5.104.5)
+        specifier: 0.5.1
+        version: 0.5.1(@tanstack/query-core@5.104.5)
       "@craftainer/crud-views":
-        specifier: 0.4.1
-        version: 0.4.1(0be63f69fd486fc85ac6954b9a534fac)
+        specifier: 0.5.1
+        version: 0.5.1(319a24e500b9648a67dc6069b0d1fdef)
       "@emotion/react":
         specifier: 11.14.0
         version: 11.14.0(@types/react@19.2.18)(react@19.2.8)
@@ -408,10 +408,10 @@ packages:
       }
     hasBin: true
 
-  "@craftainer/crud-sdk@0.5.0":
+  "@craftainer/crud-sdk@0.5.1":
     resolution:
       {
-        integrity: sha512-sRPo37+Ruy3ghIif/GG3t6rKg6PMbTAjMEvsU5qFy7wos8WSmrZ0C0HppcPUZwEDD5mlJXzDJ1vBxyLR/cut+w==,
+        integrity: sha512-YFnjN4tFr4MJDo0MiwvUasoIB/T3QtiW3nYX9wGxmYqtU/3NsYfGKlFLOi4U37REkHEH51tNy/L5Ccza+eJjhw==,
       }
     engines: { node: ">=24.22.0" }
     hasBin: true
@@ -424,10 +424,10 @@ packages:
       json-schema-to-typescript:
         optional: true
 
-  "@craftainer/crud-views@0.4.1":
+  "@craftainer/crud-views@0.5.1":
     resolution:
       {
-        integrity: sha512-dGYYBl9EMNbMZHIzEA7jI7u3rifFev9qsUWpYP15Na6eahbQ1mV66iZ6dokcrci39mcz/5tEpSgLCYOIGXR9Mg==,
+        integrity: sha512-c4fOLaHqkhtlLYe8Q8sDr6mfe+zoDf7H9Wr5RjX1HM2Fs131G5+p08+CYfyfPoSDfF1cIVw1ssh+Y2uIuyApSA==,
       }
     engines: { node: ">=24.22.0" }
     peerDependencies:
@@ -4016,13 +4016,13 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  "@craftainer/crud-sdk@0.5.0(@tanstack/query-core@5.104.5)":
+  "@craftainer/crud-sdk@0.5.1(@tanstack/query-core@5.104.5)":
     optionalDependencies:
       "@tanstack/query-core": 5.104.5
 
-  "@craftainer/crud-views@0.4.1(0be63f69fd486fc85ac6954b9a534fac)":
+  "@craftainer/crud-views@0.5.1(319a24e500b9648a67dc6069b0d1fdef)":
     dependencies:
-      "@craftainer/crud-sdk": 0.5.0(@tanstack/query-core@5.104.5)
+      "@craftainer/crud-sdk": 0.5.1(@tanstack/query-core@5.104.5)
       "@emotion/react": 11.14.0(@types/react@19.2.18)(react@19.2.8)
       "@emotion/styled": 11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8)
       "@mui/material": 9.4.0(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
