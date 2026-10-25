@@ -8,7 +8,7 @@ import {
   withApiPrefix,
 } from "./sdk";
 
-const ORIGIN = "http://app.test";
+const ORIGIN = "https://app.test";
 
 describe("withApiPrefix", () => {
   it("prefixes a Request and keeps its method, headers and body", async () => {
@@ -125,6 +125,31 @@ describe("createCrudApi", () => {
     );
     expect(first.url).toBe(`${ORIGIN}/api/.well-known/api-catalog`);
     expect(first.headers.get("Authorization")).toBe("Bearer tok");
+  });
+
+  it("sends the token over plain http to a loopback origin (the dev server)", async () => {
+    const { fetchFake } = backend();
+
+    await createCrudApi({
+      getToken: () => "tok",
+      fetch: fetchFake,
+      origin: "http://localhost:5173",
+    });
+
+    expect(fetchFake).toHaveBeenCalled();
+  });
+
+  it("refuses to send the token over plain http to a non-loopback origin", async () => {
+    const { fetchFake } = backend();
+
+    await expect(
+      createCrudApi({
+        getToken: () => "tok",
+        fetch: fetchFake,
+        origin: "http://app.test",
+      }),
+    ).rejects.toThrow(/plain http/);
+    expect(fetchFake).not.toHaveBeenCalled();
   });
 
   it("supplies the cached ETag of a record read, and the SDK sends it as If-Match", async () => {

@@ -133,11 +133,11 @@ importers:
   .:
     dependencies:
       "@craftainer/crud-sdk":
-        specifier: 0.4.0
-        version: 0.4.0(@tanstack/query-core@5.104.5)
+        specifier: 0.5.0
+        version: 0.5.0(@tanstack/query-core@5.104.5)
       "@craftainer/crud-views":
-        specifier: 0.4.0
-        version: 0.4.0(dabaa812b2c8c699d518e49fbeb5c3f5)
+        specifier: 0.4.1
+        version: 0.4.1(0be63f69fd486fc85ac6954b9a534fac)
       "@emotion/react":
         specifier: 11.14.0
         version: 11.14.0(@types/react@19.2.18)(react@19.2.8)
@@ -408,10 +408,10 @@ packages:
       }
     hasBin: true
 
-  "@craftainer/crud-sdk@0.4.0":
+  "@craftainer/crud-sdk@0.5.0":
     resolution:
       {
-        integrity: sha512-UwI/f/EqEUtKdY299KKz6TdyOIjaqiht/gInjcrCkD7JrE+qtfh83RPrRz3T10uKr01GCTV+hBS7AscdEC2dwQ==,
+        integrity: sha512-sRPo37+Ruy3ghIif/GG3t6rKg6PMbTAjMEvsU5qFy7wos8WSmrZ0C0HppcPUZwEDD5mlJXzDJ1vBxyLR/cut+w==,
       }
     engines: { node: ">=24.22.0" }
     hasBin: true
@@ -424,14 +424,14 @@ packages:
       json-schema-to-typescript:
         optional: true
 
-  "@craftainer/crud-views@0.4.0":
+  "@craftainer/crud-views@0.4.1":
     resolution:
       {
-        integrity: sha512-MtW4JFviARtkox+aFRd0xTFOW7fYTjd8cFCF8NGUZURYnDvlM+raok+AWFLtbIxZKOk5eXofS1UKBfe3NW9zNQ==,
+        integrity: sha512-dGYYBl9EMNbMZHIzEA7jI7u3rifFev9qsUWpYP15Na6eahbQ1mV66iZ6dokcrci39mcz/5tEpSgLCYOIGXR9Mg==,
       }
     engines: { node: ">=24.22.0" }
     peerDependencies:
-      "@craftainer/crud-sdk": ^0.4.0
+      "@craftainer/crud-sdk": ^0.4.0 || ^0.5.0
       "@emotion/react": ^11.14.0
       "@emotion/styled": ^11.14.0
       "@mui/material": ^9.4.0
@@ -4016,13 +4016,13 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  "@craftainer/crud-sdk@0.4.0(@tanstack/query-core@5.104.5)":
+  "@craftainer/crud-sdk@0.5.0(@tanstack/query-core@5.104.5)":
     optionalDependencies:
       "@tanstack/query-core": 5.104.5
 
-  "@craftainer/crud-views@0.4.0(dabaa812b2c8c699d518e49fbeb5c3f5)":
+  "@craftainer/crud-views@0.4.1(0be63f69fd486fc85ac6954b9a534fac)":
     dependencies:
-      "@craftainer/crud-sdk": 0.4.0(@tanstack/query-core@5.104.5)
+      "@craftainer/crud-sdk": 0.5.0(@tanstack/query-core@5.104.5)
       "@emotion/react": 11.14.0(@types/react@19.2.18)(react@19.2.8)
       "@emotion/styled": 11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8)
       "@mui/material": 9.4.0(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
