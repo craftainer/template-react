@@ -29,7 +29,8 @@ decisions:
 - [`0004-design-system-and-token-lint.md`](docs/adrs/0004-design-system-and-token-lint.md) —
   the "Field Ledger" design system in `src/theme/` and the hook that keeps raw
   colors and `px` out of the rest of `src/`; principles in
-  [`docs/design/`](docs/design/README.md).
+  [`docs/design/`](docs/design/README.md), the check order in
+  [`docs/design/workflow.md`](docs/design/workflow.md).
 - [`0005-storybook-visual-regression-and-axe.md`](docs/adrs/0005-storybook-visual-regression-and-axe.md) —
   Storybook for every component, Playwright screenshot baselines and axe
   checks over the stories, rendered in a pinned Playwright image.

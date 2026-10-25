@@ -2,7 +2,8 @@
 
 The design system's principles: what the app should look and feel like,
 and the rules that keep it that way. The tokens themselves live in code
-(`src/theme/`); this page says how to use them. Why the system is shaped
+(`src/theme/`); this page says how to use them, and [`workflow.md`](workflow.md) says how
+a UI change is checked. Why the system is shaped
 this way is in
 [`../adrs/0004-design-system-and-token-lint.md`](../adrs/0004-design-system-and-token-lint.md).
 
@@ -105,4 +106,5 @@ which clear 3:1).
 - Keep MUI's focus ring; do not remove outlines.
 - Text scales: sizes are `rem`, so the browser's font-size setting
   applies. Check layouts at 200% zoom.
-- Run axe over every story and page (UI3 automates this).
+- Run axe over every story and page; the visual suite and `ui-verify` do
+  this, see [`workflow.md`](workflow.md).
