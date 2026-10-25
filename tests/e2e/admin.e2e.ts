@@ -108,6 +108,10 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   await expect(page.getByText(/changed since the list loaded/)).toBeVisible();
   expect(patches).toEqual([]);
 
+  // Leave the editor; a click that ends an edit does not open the record.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
+
   await page.getByRole("row", { name: new RegExp(inlineName) }).click();
   await expect(page).toHaveURL(/[?&]id=\d+/);
   const id = new URL(page.url()).searchParams.get("id");

@@ -166,6 +166,18 @@ describe("rowEtagGetter", () => {
     expect(etag).toBe('"before"');
   });
 
+  it("refuses an edit when the cache holds no ETag for the record", async () => {
+    const { api, resource } = await setup();
+    const noEtags = {
+      client: api.client,
+      cache: { cachedEtag: async () => undefined },
+    } as unknown as Parameters<typeof rowEtagGetter>[0];
+
+    await expect(
+      rowEtagGetter(noEtags, resource)({ ...recordFixtures[0] }),
+    ).rejects.toThrow(/version/);
+  });
+
   it("refuses an edit of a row that changed since the list loaded", async () => {
     const { api, resource } = await setup();
 

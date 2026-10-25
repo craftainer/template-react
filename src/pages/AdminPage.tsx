@@ -52,23 +52,26 @@ const OPEN_DELAY_MS = 300;
 
 function useOpenOnClick(open: (id: string) => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const editing = useRef(false);
+  // Clicks are ignored until then: forever while a cell is being edited, and
+  // for a moment after the edit ends, because the click that leaves an edit
+  // arrives after the editor has already stopped.
+  const ignoreUntil = useRef(0);
   const cancel = () => clearTimeout(timer.current);
   useEffect(() => cancel, []);
   return {
     click(id: string) {
       cancel();
-      if (editing.current) return;
+      if (Date.now() < ignoreUntil.current) return;
       timer.current = setTimeout(() => open(id), OPEN_DELAY_MS);
     },
     gridProps: {
       onCellDoubleClick: cancel,
       onCellEditStart: () => {
-        editing.current = true;
+        ignoreUntil.current = Number.POSITIVE_INFINITY;
         cancel();
       },
       onCellEditStop: () => {
-        editing.current = false;
+        ignoreUntil.current = Date.now() + OPEN_DELAY_MS;
       },
     },
   };

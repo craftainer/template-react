@@ -156,6 +156,12 @@ export function rowEtagGetter(
         "This record was changed since the list loaded. Reload the list and try again.",
       );
     }
-    return etag(id);
+    const version = await etag(id);
+    if (version === undefined) {
+      // Not stored (a response the cache refuses): never fall back to an
+      // unconditional write.
+      throw new Error("Could not read this record's version. Try again.");
+    }
+    return version;
   };
 }
