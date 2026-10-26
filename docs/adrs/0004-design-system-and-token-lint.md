@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Track UI of `docs/plans/2026-10-templates-sdks-ui.md` wants a UI that does
+This template wants a UI that does
 not look like default model output (Roboto/Inter, purple gradients, no
 motion) and stays consistent as Claude and people add screens. The user
 picked aesthetic direction A, "Field Ledger", from three RS3 prototypes

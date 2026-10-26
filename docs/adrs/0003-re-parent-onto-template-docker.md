@@ -16,7 +16,7 @@ devcontainer image lives in `.devcontainer/Dockerfile`, the top-level
 `Dockerfile` is the instance's runtime image, and a template-owned `Makefile`
 implements the release contract (OCI build, SBOM, labels, smoke test, publish
 of the tested tar with skopeo) tuned by an optional instance-owned `image.mk`
-(its ADR 0001). Track UI of `docs/plans/2026-10-templates-sdks-ui.md` also needs
+(its ADR 0001). The UI layer also needs
 Storybook, Playwright, axe, Motion, self-hosted fonts and TanStack Query, and
 wants them, with the lockfile, in one reviewable change before the items that
 use them (UI1 onward) run in parallel.

@@ -13,8 +13,7 @@ now publishes a CRUD manifest (template-fastapi ADR 0025) that describes every
 resource a caller may see: fields, filter operators, capabilities, paths and
 limits. Two libraries consume it: `@craftainer/crud-sdk` (typed client, ETag
 cache, TanStack Query helpers) and `@craftainer/crud-views` (MUI views for
-list, form, detail, revisions, trash, statistics and predictions). The plan
-(`docs/plans/2026-10-templates-sdks-ui.md`, item UI4) has this template use
+list, form, detail, revisions, trash, statistics and predictions). This template uses
 both.
 
 Four facts about the libraries and the app shaped the wiring:
@@ -42,6 +41,15 @@ Four facts about the libraries and the app shaped the wiring:
   the trash. Nothing in it names the Hero model. System fields (ids, owner,
   lifecycle and audit timestamps) are left out of the table and shown on the
   record page.
+- **Which views.** The admin composes the view families `@craftainer/crud-views`
+  ships (list, filter, sort, form, delete, detail, revisions, bulk,
+  draft/publish, archive, statistics, predictions). The variants of each were
+  chosen from a survey of react-admin, Refine, MUI Toolpad and shadcn blocks,
+  keeping what MUI's MIT tier can build (so no multi-sort, calendar or Pro
+  grid features) and what the manifest can drive (so no related-record
+  editing: the manifest has no relations yet). The admin picks the plain
+  variants (paged table, form in the record page, confirm-before-delete); a
+  derived app picks others per page from the library's props.
 - **Client wiring** (`src/api/sdk.ts`, `src/api/CrudApi.tsx`). The client's
   `baseUrl` is the page origin and its `fetch` puts every same-origin URL under
   `/api`. The token provider reads the OIDC session and calls `signinSilent()`
@@ -83,12 +91,13 @@ Four facts about the libraries and the app shaped the wiring:
   and the SDK's `client.namespace()` (`"anon"`) otherwise, because crud-views
   resolves the namespace once per client and does not watch the token. The
   SDK 0.5.0 throws `InsecureTransportError` before sending a request that
-  carries a token over plain http to a non-loopback host; the client's base URL
-  is the page's own origin, so this only bites when the app is served over http
-  from a non-loopback host, and `allowInsecureHttp` is deliberately not set.
-  (Written against 0.4.0 and re-checked against SDK 0.5.1 / views 0.5.1 on
-  upgrade; views 0.5 reads the key field from `resource.id_field`, which the
-  manifest already supplies.) The `@craftainer/*` scope is excluded from pnpm's
+  carries a token over plain http to a non-loopback host (loopback hosts such as
+  `localhost` are exempt, so local development works over http); the client's
+  base URL is the page's own origin, so this only bites when the app is served
+  over http from a non-loopback host, and `allowInsecureHttp` is deliberately
+  not set: a deployment that serves the app without TLS should fix that rather
+  than opt in. Views 0.5 reads the key field from `resource.id_field`, which the
+  manifest supplies, so a resource whose id is not called `id` works. The `@craftainer/*` scope is excluded from pnpm's
   `minimumReleaseAge` (user decision, 2026-10-24): we release these ourselves
   and consume them right away.
 - **Tests.** Unit tests cover the `/api` prefixing, discovery, the cached ETag

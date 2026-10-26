@@ -6,13 +6,13 @@ Accepted
 
 ## Context
 
-Track UI of `docs/plans/2026-10-templates-sdks-ui.md` wants every component
-visible in isolation and a pass/fail signal for how it looks, so that neither
+Every component should be
+visible in isolation, and how it looks needs a pass/fail signal, so that neither
 a person nor Claude can change the Field Ledger system (ADR 0004) without
 noticing. Pixel baselines are only worth having if the same inputs always give
 the same pixels, and CI has to reproduce what a developer generated locally.
 
-The plan said to generate baselines "in the toolchain container against the
+The first idea was to generate baselines "in the toolchain container against the
 stack's Chromium". Two things stood in the way. The stack's Selenium Grid
 cannot be driven by Playwright: its CDP endpoint answers `ws://selenium:4444/.../se/cdp`
 with HTTP 400 (found in UI1 and UI2), and `toHaveScreenshot` needs Playwright's
