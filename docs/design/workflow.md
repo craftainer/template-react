@@ -7,6 +7,13 @@ the manifest-driven admin itself see
 [ADR 0006](../adrs/0006-manifest-driven-admin.md), which this page does not
 repeat.
 
+Why a workflow and not just a style guide: models default to generic output
+(Inter, purple gradients, minimal motion) unless they are given a specific
+direction, the real component library, one place for tokens with a lint, and a
+way to see what they built. Each step below supplies one of those, and the
+guidance steps load only when a UI task needs them rather than sitting in every
+prompt.
+
 ## The loop
 
 | Step          | What                                                              | Enforced by                                                                                               | Runs                                                         |
