@@ -14,7 +14,11 @@
 # outlasts a secondary rate limit, which GitHub documents as a wait of at
 # least a minute. Any other status is permanent and fails at once, and so do
 # a missing `gh` or token and a missing tag (HTTP 404, or 422 "No commit found
-# for SHA"): retrying cannot restore a deleted tag.
+# for SHA"): retrying cannot restore a deleted tag. GitHub documents no
+# read-after-write lag for refs, so a 404 on a just-created tag is not retried
+# either; its error message says to re-run once the tag is visible.
+# TAG_LOOKUP_ATTEMPTS must be a positive integer and TAG_LOOKUP_DELAY a
+# non-negative one, or the script fails at once.
 set -euo pipefail
 
 repo="${1:?usage: verify_release_tag.sh <owner/repo> <tag> <expected-sha>}"
@@ -23,6 +27,18 @@ expected="${3:?usage: verify_release_tag.sh <owner/repo> <tag> <expected-sha>}"
 attempts="${TAG_LOOKUP_ATTEMPTS:-6}"
 delay="${TAG_LOOKUP_DELAY:-5}"
 max_delay=60
+
+# Both knobs are used in arithmetic and `sleep`: reject anything else up front
+# (fail closed), rather than let `set -e` die on a bash arithmetic error or
+# misread a zero-padded 08 as octal, or loop zero times and report "after 0 attempt(s)".
+if ! [[ "$attempts" =~ ^[1-9][0-9]?$ ]]; then
+  echo "::error::TAG_LOOKUP_ATTEMPTS must be a positive integer (at most 99), got '${attempts}'." >&2
+  exit 1
+fi
+if ! [[ "$delay" =~ ^(0|[1-9][0-9]{0,3})$ ]]; then
+  echo "::error::TAG_LOOKUP_DELAY must be a non-negative integer of seconds without leading zeros (at most 9999), got '${delay}'." >&2
+  exit 1
+fi
 
 err_file=$(mktemp)
 trap 'rm -f "$err_file"' EXIT
@@ -40,7 +56,9 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     break
   fi
   tag_sha=
-  cat "$err_file" >&2
+  # Every attempt's stderr goes to the log, labelled; only the last one decides
+  # the final message below.
+  sed "s/^/attempt ${attempt}\/${attempts}: /" "$err_file" >&2
   # `gh` missing, or run without a token: retrying cannot fix either. gh's
   # own messages for the latter (cli/cli) are "set the GH_TOKEN environment
   # variable" (automation, Actions) and "populate the GH_TOKEN environment

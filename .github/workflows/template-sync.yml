@@ -150,9 +150,19 @@ jobs:
           # 1, so check-apply trusts 0 or 1 only when the summary agrees. It
           # fails the job here, before the sync state is advanced, and the
           # summary is printed as valid only once it has agreed.
+          # Only the validated `conflicts=0|1` line reaches $GITHUB_OUTPUT.
           check_rc=0
-          python3 template_sync.py check-apply --exit-code "$rc" \
-              --summary /tmp/apply-summary.json >> "$GITHUB_OUTPUT" || check_rc=$?
+          check_out=$(python3 template_sync.py check-apply --exit-code "$rc" \
+              --summary /tmp/apply-summary.json) || check_rc=$?
+          case "$check_out" in
+            conflicts=0 | conflicts=1) [ "$check_rc" -ne 0 ] || echo "$check_out" >> "$GITHUB_OUTPUT" ;;
+            *)
+              if [ "$check_rc" -eq 0 ]; then
+                echo "::error::check-apply printed an unexpected line; not trusting it." >&2
+                check_rc=1
+              fi
+              ;;
+          esac
           if [ "$rc" -gt 1 ] || [ "$check_rc" -ne 0 ]; then
             echo "::group::apply stdout (not validated)"
             cat /tmp/apply-summary.json || true

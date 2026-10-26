@@ -80,9 +80,14 @@ fetch() {
         esac
     fi
     # curl's --retry (+ --retry-connrefused) covers timeouts, refused
-    # connections and HTTP 408/429/5xx; resets and truncated transfers
-    # (exit 18/52/55/56) are retried here, so a permanent HTTP error (-f,
-    # exit 22), DNS or TLS failure still fails at once. Callers must write
+    # connections and HTTP 408/429/5xx; DNS and connect failures (exit 6/7),
+    # resets and truncated transfers (exit 18/52/55/56) are retried here, so a
+    # permanent HTTP error (-f, exit 22) or a TLS failure still fails at once.
+    # A timeout (28) is not: curl has already spent its --retry-max-time on it,
+    # and looping again would multiply that. At most 4 tries here, each with
+    # curl's own retries inside: bounded, and `retry` never wraps a fetch. A transfer curl can tell is cut short (a Content-Length
+    # mismatch is exit 18, a cut chunked body 56) is therefore re-fetched
+    # here, not by re-running an installer on a broken file. Callers must write
     # to a file (-o): a re-run after a partial transfer would otherwise
     # duplicate stdout.
     local attempt=1 status=0
@@ -91,7 +96,7 @@ fetch() {
         curl -fsSL --retry 5 --retry-max-time 60 --retry-connrefused \
             ${auth[@]+"${auth[@]}"} "$@" "$url" || status=$?
         case "$status" in
-            18 | 52 | 55 | 56)
+            6 | 7 | 18 | 52 | 55 | 56)
                 if [ "$attempt" -lt 4 ]; then
                     echo "curl exit $status; retrying ($attempt/3): $url" >&2
                     sleep $((attempt * 2))
@@ -142,6 +147,11 @@ download_installer() {
     installer_script="$tmp_result"
     chmod a+r "$installer_script"
     fetch_label="$1 installer" fetch "$2" -o "$installer_script"
+    # An empty 200 response would "succeed" at installing nothing.
+    if [ ! -s "$installer_script" ]; then
+        echo "downloaded $1 installer is empty: $2" >&2
+        return 1
+    fi
 }
 
 # The installers do their own downloads. prek's comes only from github.com,

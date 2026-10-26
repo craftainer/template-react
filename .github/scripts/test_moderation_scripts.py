@@ -89,6 +89,10 @@ class FindModerationResultTest(unittest.TestCase):
         self.assertIn("::error::", result.stderr)
         self.assertIn("expired", result.stderr)
         self.assertFalse((self.tmp / "output.txt").exists())
+        # Actionable: names what to re-run, and that re-running the apply run won't help.
+        self.assertIn("Re-run all jobs", result.stderr)
+        self.assertIn("/actions/runs/", result.stderr)
+        self.assertIn("cannot bring it back", result.stderr)
 
     def test_live_artifact_wins_over_an_expired_one(self) -> None:
         """A re-run's fresh artifact is found even if an older one expired."""

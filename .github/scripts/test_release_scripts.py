@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import itertools
 import os
@@ -148,6 +149,40 @@ class AssembleDistTest(unittest.TestCase):
         """A tarball that is not a tar is a reported error."""
         (self.parts / "assets-amd64.tar").write_bytes(b"not a tar")
         self.assertEqual(assemble_dist.main(["x", '["amd64"]', str(self.parts), str(self.dist)]), 1)
+
+    def test_truncated_compressed_tarball_names_the_file(self) -> None:
+        """A truncated gzip tarball is an ``::error::`` with its file name, not a traceback."""
+        # Regression: EOFError from the lazy read during extraction escaped main().
+        src = self.parts / "src"
+        src.mkdir()
+        (src / "f.txt").write_bytes(os.urandom(50_000).hex().encode())
+        full = self.parts / "full.tgz"
+        with tarfile.open(full, "w:gz") as tar:
+            tar.add(src / "f.txt", arcname="f.txt")
+        (self.parts / "assets-amd64.tar").write_bytes(full.read_bytes()[:300])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status = assemble_dist.main(["x", '["amd64"]', str(self.parts), str(self.dist)])
+        self.assertEqual(status, 1)
+        self.assertIn("::error::could not read assets-amd64.tar", out.getvalue())
+        self.assertFalse(self.dist.exists())
+
+    def test_corrupt_bz2_tarball_names_the_file(self) -> None:
+        """bz2 corruption mid-stream is reported with the file name, whatever it raises."""
+        src = self.parts / "f.txt"
+        src.write_bytes(os.urandom(2_000_000).hex().encode())  # several bz2 blocks
+        full = self.parts / "full.tbz"
+        with tarfile.open(full, "w:bz2") as tar:
+            tar.add(src, arcname="f.txt")
+        data = bytearray(full.read_bytes())
+        data[-3000:-2980] = b"\xff" * 20
+        (self.parts / "assets-amd64.tar").write_bytes(bytes(data))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status = assemble_dist.main(["x", '["amd64"]', str(self.parts), str(self.dist)])
+        self.assertEqual(status, 1)
+        # EOFError, OSError or ReadError, depending on where the damage lands.
+        self.assertRegex(out.getvalue(), r"^::error::.*assets-amd64\.tar")
 
     def test_invalid_arches_are_reported(self) -> None:
         """ARCHES_JSON must be a non-empty array of plain arch names."""
@@ -532,6 +567,42 @@ class VerifyReleaseTagTest(unittest.TestCase):
         self.assertEqual(self.count(), 3)
         self.assertEqual(self.sleeps(), [1, 2])
 
+    def test_invalid_knobs_fail_before_any_lookup(self) -> None:
+        """A non-numeric or zero attempt count, or a non-numeric delay, is rejected up front."""
+        self.calls(f"echo {SHA}")
+        for name, value in (
+            ("TAG_LOOKUP_ATTEMPTS", "0"),
+            ("TAG_LOOKUP_ATTEMPTS", "abc"),
+            ("TAG_LOOKUP_ATTEMPTS", "-1"),
+            ("TAG_LOOKUP_DELAY", "1.5"),
+            ("TAG_LOOKUP_DELAY", "x"),
+            ("TAG_LOOKUP_DELAY", "-3"),
+            ("TAG_LOOKUP_DELAY", "08"),
+            ("TAG_LOOKUP_ATTEMPTS", "100"),
+        ):
+            with self.subTest(name=name, value=value):
+                result = self.run_script(**{name: value})
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn(f"::error::{name} must be", result.stderr)
+                self.assertFalse((self.tmp / "count").exists())
+
+    def test_zero_delay_is_allowed(self) -> None:
+        """A delay of 0 is valid (no wait between attempts)."""
+        self.calls(f"echo {SHA}")
+        self.assertEqual(self.run_script(TAG_LOOKUP_DELAY="0").returncode, 0)
+
+    def test_every_attempts_stderr_is_logged(self) -> None:
+        """Earlier attempts' errors stay in the log, labelled with their attempt."""
+        self.calls(
+            "echo 'gh: Bad Gateway (HTTP 502)' >&2; exit 1",
+            "echo 'error connecting to api.github.com' >&2; exit 1",
+            f"echo {SHA}",
+        )
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("attempt 1/6: gh: Bad Gateway (HTTP 502)", result.stderr)
+        self.assertIn("attempt 2/6: error connecting to api.github.com", result.stderr)
+
     def test_workflow_uses_the_script(self) -> None:
         """release.yml delegates to the script instead of an inline lookup."""
         text = (SCRIPTS.parent / "workflows" / "release.yml").read_text()
@@ -585,6 +656,69 @@ class DevelopScriptRetryTest(unittest.TestCase):
         self.assertIn("curl exit 22", result.stderr)
         text_calls = re.findall(r"^download_installer (\S+) ", text, re.MULTILINE)
         self.assertEqual(text_calls, ["uv", "prek", "claude"])
+
+    def run_download(self, curl_body: str) -> tuple[subprocess.CompletedProcess[str], int]:
+        """Run ``download_installer`` against a fake ``curl``; return the process and curl calls."""
+        text = (SCRIPTS.parents[1] / "scripts" / "develop.sh").read_text()
+        parts = []
+        for name in ("tmp_path", "fetch", "download_installer"):
+            body = re.search(rf"^{name}\(\) \{{\n.*?^\}}\n", text, re.MULTILINE | re.DOTALL)
+            self.assertIsNotNone(body, name)
+            parts.append(body.group(0))  # type: ignore[union-attr]
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, body in (
+                ("curl", f'#!/usr/bin/env bash\necho x >> "{tmp}/calls"\n{curl_body}\n'),
+                ("sleep", "#!/usr/bin/env bash\nexit 0\n"),
+            ):
+                path = Path(tmp) / name
+                path.write_text(body)
+                path.chmod(0o755)
+            script = (
+                'set -euo pipefail\ncleanup_paths=()\ntmp_result=""\ninstaller_script=""\n'
+                + "".join(parts)
+                + 'download_installer uv "https://example.invalid/uv-installer.sh"\n'
+                + 'echo "installed: $(cat "$installer_script")"\n'
+            )
+            result = subprocess.run(  # noqa: S603 -- fixed argv
+                ["bash", "-c", script],  # noqa: S607
+                env={**os.environ, "PATH": f"{tmp}{os.pathsep}{os.environ['PATH']}"},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            calls = (Path(tmp) / "calls").read_text().count("x")
+        return result, calls
+
+    def test_transient_curl_failures_are_retried_by_fetch(self) -> None:
+        """DNS (6) and connect (7) failures retry inside fetch, not abort."""
+        for status in (6, 7):
+            with self.subTest(status=status):
+                # Fail twice, then write the installer to the -o target.
+                body = (
+                    f'n=$(wc -l < "$(dirname "$0")/calls")\n'
+                    f"if [ $n -le 2 ]; then echo 'curl: ({status})' >&2; exit {status}; fi\n"
+                    'while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
+                    'echo script > "$out"\n'
+                )
+                result, calls = self.run_download(body)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls, 3)
+                self.assertIn("installed: script", result.stdout)
+
+    def test_persistent_curl_failure_gives_up_after_bounded_retries(self) -> None:
+        """A DNS failure that never clears aborts after 4 tries, naming the installer."""
+        result, calls = self.run_download("exit 6")
+        self.assertEqual(result.returncode, 6, result.stderr)
+        self.assertEqual(calls, 4)
+        self.assertIn("uv installer", result.stderr)
+
+    def test_empty_installer_download_fails(self) -> None:
+        """A download that leaves an empty file fails instead of installing nothing."""
+        body = 'while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n: > "$out"\n'
+        result, _ = self.run_download(body)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("installer is empty", result.stderr)
 
 
 if __name__ == "__main__":

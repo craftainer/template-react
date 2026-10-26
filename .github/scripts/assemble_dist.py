@@ -23,12 +23,15 @@ Usage: assemble_dist.py ARCHES_JSON PARTS_DIR DIST_DIR
 
 from __future__ import annotations
 
+import gzip
 import json
+import lzma
 import re
 import shutil
 import sys
 import tarfile
 import tempfile
+import zlib
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -37,6 +40,10 @@ if TYPE_CHECKING:
 
 # An arch name ends up in a file name (``assets-<arch>.tar``): no separators.
 _ARCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+# What reading a corrupt or truncated (compressed) tarball raises .
+_CORRUPT = (tarfile.TarError, EOFError, zlib.error, lzma.LZMAError, gzip.BadGzipFile)
 
 
 class AssembleError(Exception):
@@ -150,18 +157,32 @@ def assemble(arches: list[str], parts: Path, dist: Path) -> None:
     stage = Path(tempfile.mkdtemp(prefix=f".{dist.name}.", dir=dist.parent))
     try:
         for arch, tarball in zip(names, tarballs, strict=True):
-            with tarfile.open(tarball) as tar:
-                # The "data" filter refuses unsafe links and absolute paths.
-                try:
-                    tar.extractall(
-                        stage, members=_checked_members(tar, arch, leaves, dirs), filter="data"
-                    )
-                except tarfile.FilterError as exc:
-                    msg = (
-                        f"{tarball.name}: {exc}; release assets may only contain regular "
-                        "files, directories and links that stay inside dist/"
-                    )
-                    raise AssembleError(msg) from exc
+            try:
+                with tarfile.open(tarball) as tar:
+                    # The "data" filter refuses unsafe links and absolute paths.
+                    try:
+                        tar.extractall(
+                            stage, members=_checked_members(tar, arch, leaves, dirs), filter="data"
+                        )
+                    except tarfile.FilterError as exc:
+                        msg = (
+                            f"{tarball.name}: {exc}; release assets may only contain regular "
+                            "files, directories and links that stay inside dist/"
+                        )
+                        raise AssembleError(msg) from exc
+            except _CORRUPT as exc:
+                # The collision check reads the tarball lazily, so a corrupt or
+                # truncated one surfaces here, deep inside extraction.
+                msg = (
+                    f"could not read {tarball.name} ({type(exc).__name__}: {exc}); "
+                    "it may be corrupt or truncated"
+                )
+                raise AssembleError(msg) from exc
+            except OSError as exc:
+                # bz2 corruption is a bare OSError; so is a full disk. Name the file
+                # without claiming which.
+                msg = f"{tarball.name}: {exc}"
+                raise AssembleError(msg) from exc
         # mkdtemp creates 0700, and dist/ must be readable to the other user the
         # devcontainer runs as. The "data" filter sets every directory's mode to
         # None, so a "." member (`tar -C dist -cf x.tar .`) never restricts the
