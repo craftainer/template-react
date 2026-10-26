@@ -4,6 +4,8 @@
 
 Accepted
 
+Note (2026-10-26, LIC1): the project licence identifier is now `GPL-3.0-only`, not `GPL-3.0-or-later`; the `OCI_LICENSE` default and the `licenses` label follow it. The `GPL-3.0-or-later` mentions below record what was decided at the time.
+
 ## Context
 
 template-react was an instance of `template-base` that carried its own
