@@ -266,7 +266,7 @@ the digest are those of the tested artifact:
   `.url` (the repository), `.version` (`RELEASE_VERSION`), `.revision`
   (`git rev-parse HEAD`), `.created` (the commit time, not the build
   time), and `.licenses` (`OCI_LICENSE`,
-  default `GPL-3.0-or-later`).
+  default `GPL-3.0-only`).
 - `org.opencontainers.image.description`, only when the instance sets
   `OCI_DESCRIPTION` in `image.mk` (the Makefile has no offline source
   for the repository description).

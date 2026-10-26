@@ -354,7 +354,7 @@ defaults) and every variable is `?=`, so set them in `image.mk`:
 | `BUILD_ARGS` | empty | full flag words, e.g. `--build-arg APP_VERSION=$(RELEASE_VERSION)` |
 | `EXTRA_LABELS` | empty | full flag words, e.g. `--label k=v` |
 | `OCI_DESCRIPTION` | empty | `org.opencontainers.image.description`; the label is omitted while empty |
-| `OCI_LICENSE` | `GPL-3.0-or-later` | SPDX id for `org.opencontainers.image.licenses` |
+| `OCI_LICENSE` | `GPL-3.0-only` | SPDX id for `org.opencontainers.image.licenses` |
 | `COVERAGE_REPORT` | empty | release asset name for the `io.github.<owner>.coverage-report` label; omitted while empty |
 | `IMAGE_SMOKE_PORT`, `IMAGE_SMOKE_PATH` | `8000`, `/health/live` | URL polled for a 2xx |
 | `IMAGE_SMOKE_RUN_ARGS`, `IMAGE_SMOKE_TIMEOUT` | empty, `60` | extra `docker run` words, whitespace-separated with no embedded spaces or quotes (passed through the environment); seconds to wait |
@@ -608,7 +608,7 @@ template-base
 Naming: a library repo is `lib-<name>-<py|ts|rs>` and an app repo is
 `template-<runtime>`; the registry package is `craftainer-<name>` on PyPI and
 crates.io and `@craftainer/<name>` on npm (`lib-crud-sdk-ts` publishes
-`@craftainer/crud-sdk`). Libraries declare `GPL-3.0-or-later` in their package
+`@craftainer/crud-sdk`). Libraries declare `GPL-3.0-only` in their package
 manifest; base itself ships the GPL v3 text in `LICENSE`.
 
 Each mid-layer template is an instance of base that is itself a template. It
