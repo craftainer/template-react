@@ -229,6 +229,17 @@ under that version (detected only here, after the per-arch images of both runs w
 pushed). GitHub keeps at most one waiting run per group, and a
 newer waiting run replaces it.
 
+A release that exists on GitHub counts as complete: whatever failed after it
+is finished by re-running the failed jobs, never by cutting another version.
+
+**Opting into a registry.** The `PYPI_PUBLISH` (`testpypi` or `pypi`),
+`NPM_PUBLISH` and `CARGO_PUBLISH` repository variables are what opt an
+instance into a registry; with none set, `publish-packages` and
+`verify-published` do not run. `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` are
+only for the first release of a package, before trusted publishing is set up
+at the registry. See `.github/workflows/README.md`,
+"Release variables and secrets".
+
 Re-run only the *failed jobs* of a run. "Re-run all jobs" runs `version`
 again, which sees the tag the first attempt created and computes the next
 version, so it cuts another release instead of finishing the first.
@@ -272,7 +283,9 @@ more files to `dist/`, and the assembled `dist/` (uploaded at the end of the
 more files, but they are attached to the GitHub release only:
 `publish-packages` and `verify-published` do not see them. A path that two
 legs both produce (the same file name, a file in one and a directory of
-that name in another, or a symlink) fails the assembly.
+that name in another, or a symlink) fails the assembly. The assembly also
+refuses to run when `dist/` already exists and is not empty, so stray files
+cannot end up in a release.
 `release.yml` then runs `gh release create` with every file left in
 `dist/`.
 
@@ -542,6 +555,24 @@ is meant to run once per tag pair: the state file moves to the new tag
 afterwards. Running it again is harmless for files already merged cleanly,
 but it merges a hand-resolved conflict again and re-creates its markers.
 
+Further sync behaviour, detailed in `.github/scripts/README.md`:
+
+- `apply` is not atomic. CI discards the checkout and does not advance the
+  state on an error; after a failed manual run, reset the working tree with
+  git before trying again.
+- A binary `merge`-tier file the instance changed cannot be merged. It is
+  kept as it is, reported as a conflict, listed as `merge.binary` in the
+  summary and labelled in the sync PR.
+- The moderation `-apply` workflows fail on an expired `moderation-result`
+  artifact instead of passing: a produced result was lost, so re-run the
+  worker run (see `.github/workflows/README.md`, "Issue moderation").
+- The scripts under `.github/scripts/` run on the runner's system `python3`.
+  Base ships `.github/scripts/ruff.toml` (`replace` tier), pinned to that
+  Python's `target-version`, and `test_script_syntax.py` guards it with
+  `ast.parse(feature_version=...)`. A Python instance must not override or
+  remove it: its own `pyproject.toml` targets a newer Python and ruff would
+  rewrite those scripts into syntax the runner cannot parse.
+
 An instance that isn't itself a template shouldn't edit that manifest to
 list its own files (`src/`, say): it's `merge`-tier, so edits would
 conflict with later syncs. It lists them under an `ignore:` key in the
@@ -573,6 +604,12 @@ template-base
     ├── template-axum
     └── template-react
 ```
+
+Naming: a library repo is `lib-<name>-<py|ts|rs>` and an app repo is
+`template-<runtime>`; the registry package is `craftainer-<name>` on PyPI and
+crates.io and `@craftainer/<name>` on npm (`lib-crud-sdk-ts` publishes
+`@craftainer/crud-sdk`). Libraries declare `GPL-3.0-or-later` in their package
+manifest; base itself ships the GPL v3 text in `LICENSE`.
 
 Each mid-layer template is an instance of base that is itself a template. It
 adds one kind of artifact to base's release contract and keeps everything

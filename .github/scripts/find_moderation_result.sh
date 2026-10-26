@@ -24,7 +24,8 @@ state=$(gh api "repos/${repo}/actions/runs/${run_id}/artifacts?name=moderation-r
 case "$state" in
   found) found=true ;;
   expired)
-    echo "::error::The moderation-result artifact of run ${run_id} has expired before it was applied; re-run the worker workflow." >&2
+    run_url="${GITHUB_SERVER_URL:-https://github.com}/${repo}/actions/runs/${run_id}"
+    echo "::error::The moderation-result artifact of run ${run_id} expired before it was applied, so this result is lost and nothing was changed. Re-running this apply run cannot bring it back. To redo it, re-run the worker run (${run_url}) with Re-run all jobs; its fresh artifact triggers a new apply run." >&2
     exit 1
     ;;
   missing)

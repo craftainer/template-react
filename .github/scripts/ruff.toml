@@ -15,7 +15,8 @@
 # `.github/scripts/` entry in ../template-sync-manifest.yml).
 #
 # Keep `target-version` equal to the runner's `python3` minor version.
-# test_script_syntax.py parses every script against that version.
+# test_script_syntax.py parses every script against that version and fails
+# when the workflows' default runner label changes, so this is not forgotten.
 
 target-version = "py312"
 line-length = 100
