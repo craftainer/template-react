@@ -21,8 +21,13 @@
   `../template-sync-state.json`. Its `check-apply` subcommand cross-checks
   `apply`'s exit status against the summary it wrote, so a crash that
   exits 1 is not read as merge conflicts. A merge-tier file the instance
-  never changed takes the new version outright; a binary one the instance
-  did change is reported as a conflict and left as it is. It catches the broad `apply` failure with
+  never changed takes the new version outright (content and executable bit,
+  keeping its other mode bits); a merged file keeps its own mode. A binary
+  one the instance did change is reported as a conflict and left as it is;
+  since it has no conflict markers, it is also listed in the summary's
+  `merge.binary`, labelled in the PR body and annotated with `::warning::` in
+  the job log. The workflow's apply step writes only `check-apply`'s validated
+  `conflicts=0|1` line to `$GITHUB_OUTPUT`. `apply` catches its broad failure with
   `logging.exception` rather than a `noqa`, so instances that don't
   select ruff's `BLE` rules see no unused-`noqa` finding.
   `apply` is not atomic: on exit 2, files written before the error stay on
@@ -51,7 +56,9 @@
   `.` member cannot matter: the `data` extraction filter sets a directory's
   mode to `None`, so no member restricts the staging directory mid-run (a test
   pins this). A failed run, including a collision found in a later leg,
-  discards the staging directory and leaves `dist/` untouched.
+  discards the staging directory and leaves `dist/` untouched. A corrupt or
+  truncated tarball (including a cut-off compressed one) is an `::error::`
+  naming the file, not a traceback.
   `has_make_target.sh` runs no recipe, but make still evaluates
   `$(shell ...)` and `include` while parsing the Makefile.
   `test_release_scripts.py` tests both, `verify_release_tag.sh`, and that
@@ -74,20 +81,31 @@
   supersedes the instance-level `select ALL` remarks above for these files.
   `test_script_syntax.py` parses every script with
   `ast.parse(feature_version=(3, 12))` and checks `ruff.toml` names the same
-  version. Bump both together if the runner's `python3` changes.
+  version. The runner image's `python3` is not read at test time (that would
+  need the network), so `test_script_syntax.py` also maps each runner label
+  the workflows default to (`ubuntu-24.04`) to its Python: when Renovate bumps
+  that label the test fails until you look up the new image's `python3`
+  (actions/runner-images) and update `RUNNER_IMAGE_PYTHON`, `RUNNER_PYTHON` and
+  `ruff.toml` together.
 - `verify_release_tag.sh` — the `release` job's check that an already
   published release's tag points at the commit the run built (fails closed;
   retries only transient lookup errors, six attempts over about two
   minutes, and never a missing tag or a missing token, which it recognises by
   `gh`'s own "set/populate the GH_TOKEN environment variable" message, not
-  by any stderr that names `GH_TOKEN`). Tested against a fake `gh` in
+  by any stderr that names `GH_TOKEN`). `TAG_LOOKUP_ATTEMPTS` (1-99) and `TAG_LOOKUP_DELAY` (0-9999, no leading zeros) are validated up
+  front, every attempt's stderr is logged labelled with its attempt number,
+  and a 404 is not retried even on a just-created tag: GitHub documents no
+  read-after-write lag for refs, so the error says to re-run once the tag is
+  visible. Tested against a fake `gh` in
   `test_release_scripts.py`.
 - `find_moderation_result.sh` / `test_moderation_scripts.py` — the check
   step shared by `../workflows/moderate-bug-fix-apply.yml` and
   `../workflows/moderate-feature-build-apply.yml`: asks the API for the
   `moderation-result` artifact by name (so it is found however many
   artifacts the run has) and writes `found=true|false`. It fails on an
-  expired artifact (a produced result that can no longer be applied), an
+  expired artifact (a produced result that can no longer be applied; the
+  message says to re-run the worker run, since re-running the apply run
+  cannot bring the artifact back), an
   API error, and an empty or unrecognised response. The tests run it
   against a fake `gh`.
 - `run_claude.sh` — invokes `claude -p` for one issue-moderation stage

@@ -402,16 +402,44 @@ class ApplyMergeTest(unittest.TestCase):
     def test_second_run_changes_and_reports_nothing(self) -> None:
         """Re-running the same old->new sync leaves the tree alone and lists no files."""
         # Regression: a re-run reported every merge-tier file as "merged" again.
-        self.assertEqual(self.apply(), {"merged": ["m.txt"], "conflicts": []})
+        self.assertEqual(self.apply(), {"merged": ["m.txt"], "conflicts": [], "binary": []})
         merged = (self.instance / "m.txt").read_bytes()
         self.assertEqual(merged, b"a\nB\nc\nd\n")
-        self.assertEqual(self.apply(), {"merged": [], "conflicts": []})
+        self.assertEqual(self.apply(), {"merged": [], "conflicts": [], "binary": []})
         self.assertEqual((self.instance / "m.txt").read_bytes(), merged)
 
     def test_instance_already_equal_to_new_is_not_reported(self) -> None:
         """A file the instance already has at the new version is not "merged"."""
         write(self.instance / "m.txt", b"a\nB\nc\n", 0o644)
-        self.assertEqual(self.apply(), {"merged": [], "conflicts": []})
+        self.assertEqual(self.apply(), {"merged": [], "conflicts": [], "binary": []})
+
+    def test_untouched_instance_file_keeps_its_other_mode_bits(self) -> None:
+        """Taking the new version outright rewrites content, not the instance's mode."""
+        # Regression: copy2 copied the template's whole mode over the instance file's.
+        write(self.instance / "m.txt", b"a\nb\nc\n", 0o664)
+        self.assertEqual(self.apply()["merged"], ["m.txt"])
+        self.assertEqual((self.instance / "m.txt").read_bytes(), b"a\nB\nc\n")
+        self.assertEqual(stat.S_IMODE((self.instance / "m.txt").stat().st_mode), 0o664)
+
+    def test_untouched_instance_file_gains_the_upstream_executable_bit(self) -> None:
+        """Like the replace tier, an upstream 644 -> 755 change reaches an untouched file."""
+        write(self.new / "m.txt", b"a\nB\nc\n", 0o755)
+        write(self.instance / "m.txt", b"a\nb\nc\n", 0o664)
+        self.assertEqual(self.apply()["merged"], ["m.txt"])
+        self.assertEqual(stat.S_IMODE((self.instance / "m.txt").stat().st_mode), 0o775)
+
+    def test_merged_file_keeps_its_mode_like_the_fast_path(self) -> None:
+        """Both ways of updating an existing file leave its mode alone."""
+        write(self.instance / "m.txt", b"a\nb\nc\nd\n", 0o755)
+        self.assertEqual(self.apply()["merged"], ["m.txt"])
+        self.assertEqual(stat.S_IMODE((self.instance / "m.txt").stat().st_mode), 0o755)
+
+    def test_text_conflict_is_not_listed_as_binary(self) -> None:
+        """A conflict with markers is not a binary one."""
+        write(self.instance / "m.txt", b"a\nZ\nc\n", 0o644)
+        result = self.apply()
+        self.assertEqual(result["conflicts"], ["m.txt"])
+        self.assertEqual(result["binary"], [])
 
     def test_symlinked_instance_file_is_not_merged_through(self) -> None:
         """Like the replace tier, a deliberately linked instance file is left alone."""
@@ -419,7 +447,7 @@ class ApplyMergeTest(unittest.TestCase):
         target.write_bytes(b"a\nb\nc\nd\n")
         (self.instance / "m.txt").unlink()
         (self.instance / "m.txt").symlink_to(target)
-        self.assertEqual(self.apply(), {"merged": [], "conflicts": []})
+        self.assertEqual(self.apply(), {"merged": [], "conflicts": [], "binary": []})
         self.assertEqual(target.read_bytes(), b"a\nb\nc\nd\n")
 
     def test_dangling_symlink_is_not_written_through(self) -> None:
@@ -427,7 +455,7 @@ class ApplyMergeTest(unittest.TestCase):
         (self.instance / "m.txt").unlink()
         dangling = self.root / "nowhere.txt"
         (self.instance / "m.txt").symlink_to(dangling)
-        self.assertEqual(self.apply(), {"merged": [], "conflicts": []})
+        self.assertEqual(self.apply(), {"merged": [], "conflicts": [], "binary": []})
         self.assertFalse(dangling.exists())
 
 
@@ -474,7 +502,7 @@ class MergeFileErrorTest(unittest.TestCase):
         write(new / "b.bin", b"a\x00c\n", 0o644)
         write(instance / "b.bin", b"a\x00d\n", 0o644)
         result = template_sync.apply_merge(old, new, instance, {"b.bin"})
-        self.assertEqual(result, {"merged": [], "conflicts": ["b.bin"]})
+        self.assertEqual(result, {"merged": [], "conflicts": ["b.bin"], "binary": ["b.bin"]})
         self.assertEqual((instance / "b.bin").read_bytes(), b"a\x00d\n")
 
     def test_binary_file_untouched_by_the_instance_is_updated(self) -> None:
@@ -484,7 +512,7 @@ class MergeFileErrorTest(unittest.TestCase):
         write(new / "b.bin", b"a\x00c\n", 0o644)
         write(instance / "b.bin", b"a\x00b\n", 0o644)
         result = template_sync.apply_merge(old, new, instance, {"b.bin"})
-        self.assertEqual(result, {"merged": ["b.bin"], "conflicts": []})
+        self.assertEqual(result, {"merged": ["b.bin"], "conflicts": [], "binary": []})
         self.assertEqual((instance / "b.bin").read_bytes(), b"a\x00c\n")
 
     def test_binary_file_already_at_the_new_version_is_skipped(self) -> None:
@@ -494,7 +522,7 @@ class MergeFileErrorTest(unittest.TestCase):
         write(new / "b.bin", b"a\x00c\n", 0o644)
         write(instance / "b.bin", b"a\x00c\n", 0o644)
         result = template_sync.apply_merge(old, new, instance, {"b.bin"})
-        self.assertEqual(result, {"merged": [], "conflicts": []})
+        self.assertEqual(result, {"merged": [], "conflicts": [], "binary": []})
 
     def test_binary_new_file_without_prior_version_is_a_conflict(self) -> None:
         """A newly merge-tier binary file has no base; it is still a conflict, not an error."""
@@ -636,6 +664,11 @@ class CheckApplyTest(unittest.TestCase):
         self.summary.write_text('{"merge": []}')
         self.assertEqual(self.check(1)[0], 2)
 
+    def test_deeply_nested_summary_fails_instead_of_crashing(self) -> None:
+        """A summary that overflows the JSON parser's recursion limit is rejected."""
+        self.summary.write_text("[" * 200_000)
+        self.assertEqual(self.check(1), (2, ""))
+
     def test_error_exit_fails(self) -> None:
         """Exit 2 (or any other status) fails even with a valid summary."""
         self.write_summary([])
@@ -731,12 +764,73 @@ class ApplyStepTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertEqual(out, "")
 
+    def test_only_the_validated_line_reaches_github_output(self) -> None:
+        """Extra stdout from check-apply is never written to ``$GITHUB_OUTPUT``."""
+        fake = self.FAKE.replace(
+            "import template_sync\n",
+            "if sys.argv[1] == 'check-apply':\n"
+            "    print('conflicts=0\\nevil=1')\n"
+            "    raise SystemExit(0)\n"
+            "import template_sync\n",
+        )
+        self.assertNotEqual(fake, self.FAKE)  # the replace must have applied
+        with mock.patch.object(ApplyStepTest, "FAKE", fake):
+            result, out = self.run_step(0, self.CLEAN)
+        self.assertEqual(out, "")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("unexpected line", result.stderr)
+
     def test_summary_is_not_printed_as_valid_before_validation(self) -> None:
         """A rejected summary is printed only under a "not validated" label."""
         result, _ = self.run_step(2, self.CLEAN)
         text = result.stdout
         self.assertIn("not validated", text)
         self.assertLess(text.index("not validated"), text.index(self.CLEAN))
+
+
+class BinaryConflictVisibilityTest(unittest.TestCase):
+    """A binary conflict has no markers, so the PR body and the job log must say so."""
+
+    SUMMARY = {
+        "replace": {"updated": [], "removed": []},
+        "merge": {"merged": [], "conflicts": ["b.bin", "t.txt"], "binary": ["b.bin"]},
+    }
+
+    def test_pr_body_labels_the_binary_conflict(self) -> None:
+        """Each conflict line says which kind it is."""
+        body = template_sync.pr_body(self.SUMMARY, "v1.0.0", "v1.1.0", "o/t")
+        self.assertIn("binary conflict, no markers", body.split("`b.bin`")[0].splitlines()[-1])
+        self.assertIn("conflict, needs manual resolution**): `t.txt`", body)
+
+    def test_pr_body_accepts_a_summary_without_the_binary_key(self) -> None:
+        """A summary from an older apply still renders."""
+        old = {**self.SUMMARY, "merge": {"merged": [], "conflicts": ["t.txt"]}}
+        self.assertIn("`t.txt`", template_sync.pr_body(old, "v1.0.0", "v1.1.0", "o/t"))
+
+    def test_apply_warns_about_the_binary_conflict(self) -> None:
+        """``apply`` prints a ``::warning::`` annotation naming the file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old, new, instance = (root / n for n in ("old", "new", "instance"))
+            write(old / "b.bin", b"a\x00b\n", 0o644)
+            write(new / "b.bin", b"a\x00c\n", 0o644)
+            write(instance / "b.bin", b"a\x00d\n", 0o644)
+            manifest = root / "manifest.yml"
+            manifest.write_text("merge:\n  - b.bin\n")
+            args = argparse.Namespace(
+                manifest=manifest, old_ref=old, new_ref=new, instance_root=instance
+            )
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                status = template_sync.cmd_apply(args)
+        self.assertEqual(status, template_sync.EXIT_CONFLICTS)
+        self.assertIn("::warning file=b.bin::binary merge conflict", err.getvalue())
+
+    def test_warning_escapes_the_path(self) -> None:
+        """Characters that end an annotation property are percent-encoded."""
+        self.assertEqual(
+            template_sync._annotation_escape("a,b:c%d\n.bin", prop=True), "a%2Cb%3Ac%25d%0A.bin"
+        )
 
 
 _SCRIPT_PATH_RE = re.compile(r"(?<![\w.-])(\.github/scripts/[\w.-]+\.sh)\b")

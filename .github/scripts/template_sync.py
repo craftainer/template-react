@@ -304,9 +304,15 @@ def apply_merge(
     ``merged`` lists only files whose content actually changed, so running the
     same step again (an instance already at the new version) reports nothing.
     A path the instance links elsewhere is left alone, as in the replace tier.
+    ``binary`` lists the conflicts that are binary files (a subset of
+    ``conflicts``): they get no conflict markers, so nothing in the tree shows
+    them. A merged existing file keeps its own mode; one the instance never
+    changed takes the new version's content and executable bit, as in the
+    replace tier, and keeps its other mode bits.
     """
     merged: list[str] = []
     conflicts: list[str] = []
+    binary: list[str] = []
     for path in sorted(paths):
         new_file = new_root / path
         old_file = old_root / path
@@ -320,6 +326,8 @@ def apply_merge(
             shutil.copy2(new_file, instance_file)
             merged.append(path)
             continue
+        # Probed up front, the same way merge_file decides to decline a binary file.
+        binary_input = any(is_binary(p) for p in (instance_file, old_file, new_file))
         base_content = old_file.read_bytes() if old_file.exists() else b""
         new_content = new_file.read_bytes()
         if new_content == base_content:
@@ -330,7 +338,11 @@ def apply_merge(
         if old_file.exists() and before == base_content:
             # Untouched by the instance: take the new version outright. Git
             # would do the same for text; a binary file can only be merged this way.
-            shutil.copy2(new_file, instance_file)
+            # Content and the executable bit, as in the replace tier, but not the
+            # template's other mode bits (copy2 would overwrite them).
+            shutil.copyfile(new_file, instance_file)
+            if is_executable(new_file) != is_executable(instance_file):
+                sync_executable_bit(new_file, instance_file)
             merged.append(path)
             continue
         if old_file.exists():
@@ -342,9 +354,17 @@ def apply_merge(
                 conflicted = merge_file(instance_file, Path(empty_base.name), new_file)
         if conflicted:
             conflicts.append(path)
+            if binary_input:
+                binary.append(path)
         elif instance_file.read_bytes() != before:
             merged.append(path)
-    return {"merged": merged, "conflicts": conflicts}
+    return {"merged": merged, "conflicts": conflicts, "binary": binary}
+
+
+def _annotation_escape(value: str, *, prop: bool = False) -> str:
+    """Percent-encode ``value`` for a GitHub workflow command (property or message)."""
+    value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return value.replace(":", "%3A").replace(",", "%2C") if prop else value
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
@@ -377,6 +397,13 @@ def cmd_apply(args: argparse.Namespace) -> int:
         log.exception("apply failed")
         print(f"error: {type(err).__name__}: {err}", file=sys.stderr)
         return EXIT_ERROR
+    for path in summary["merge"].get("binary", []):
+        # No markers in a binary file, so say it where the job log is read.
+        print(
+            f"::warning file={_annotation_escape(path, prop=True)}::binary merge conflict, "
+            "left at the instance's version; take the template's new version by hand",
+            file=sys.stderr,
+        )
     print(json.dumps(summary, indent=2))
     return EXIT_CONFLICTS if summary["merge"]["conflicts"] else 0
 
@@ -400,7 +427,8 @@ def cmd_check_apply(args: argparse.Namespace) -> int:
         agrees = isinstance(conflicts, list) and bool(conflicts) == (
             args.exit_code == EXIT_CONFLICTS
         )
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        # RecursionError: json.loads on a pathologically nested file.
         agrees = False
     if not agrees:
         print(
@@ -422,14 +450,20 @@ def pr_body(summary: dict[str, dict[str, list[str]]], old_tag: str, new_tag: str
         lines.append(f"- replace (removed upstream): `{path}`")
     for path in summary["merge"]["merged"]:
         lines.append(f"- merge (clean): `{path}`")
+    binary = set(summary["merge"].get("binary", []))
     for path in summary["merge"]["conflicts"]:
-        lines.append(f"- merge (**conflict, needs manual resolution**): `{path}`")
+        if path in binary:
+            lines.append(
+                f"- merge (**binary conflict, no markers; kept at this repo's version, "
+                f"take the new one from the template's new tag by hand**): `{path}`"
+            )
+        else:
+            lines.append(f"- merge (**conflict, needs manual resolution**): `{path}`")
     if summary["merge"]["conflicts"]:
         lines += [
             "",
-            "One or more files above have `<<<<<<<` conflict markers to resolve before merging "
-            "(a binary file has none: it is left at the instance's version, so take the new "
-            "one from the template's new tag).",
+            "Resolve every conflict above before merging: text files have `<<<<<<<` markers; "
+            "a binary file has none (it is left at the instance's version).",
         ]
     if "pyproject.toml" in summary["merge"]["merged"] + summary["merge"]["conflicts"]:
         lines += [

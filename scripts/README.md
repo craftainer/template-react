@@ -11,7 +11,10 @@
   that download for themselves run through `retry` (the installer script
   itself is fetched once, by `fetch`, so the two layers of retries do not
   multiply; a failed download names the installer and URL before the script
-  aborts), so CI's shared-IP HTTP 429s don't fail the image build. Local builds need no token.
+  aborts, an empty one is rejected, and `fetch` itself retries DNS and
+  connect failures (curl exit 6/7) and truncated transfers (18/52/55/56) up
+  to 4 times; timeouts are left to curl's own `--retry`), so CI's shared-IP
+  HTTP 429s don't fail the image build. Local builds need no token.
 - `post-create.sh` — the devcontainer's `postCreateCommand`: git
   `safe.directory`, `prek install`, then every `post-create.d/*.sh`.
 - `develop.d/`, `post-create.d/`, `runner-setup.d/` — instance hook
