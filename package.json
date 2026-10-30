@@ -17,7 +17,7 @@
     "storybook:build": "storybook build"
   },
   "dependencies": {
-    "@craftainer/crud-sdk": "0.5.1",
+    "@craftainer/crud-sdk": "0.7.0",
     "@craftainer/crud-views": "0.5.1",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
@@ -29,10 +29,8 @@
     "@mui/x-data-grid": "9.16.0",
     "@tanstack/react-query": "5.104.5",
     "motion": "14.4.0",
-    "oidc-client-ts": "3.5.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "react-oidc-context": "3.3.1"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",

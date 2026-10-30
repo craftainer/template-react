@@ -5,7 +5,7 @@ import { installAdminStub } from "../pages/adminStub";
 import { CrudApiProvider } from "./CrudApi";
 
 const { useAuthMock } = vi.hoisted(() => ({ useAuthMock: vi.fn() }));
-vi.mock("react-oidc-context", () => ({ useAuth: useAuthMock }));
+vi.mock("../auth/authContext", () => ({ useAuth: useAuthMock }));
 
 function Scope() {
   const { namespace } = useCrud();
@@ -33,9 +33,9 @@ describe("CrudApiProvider query scope", () => {
     window.fetch = realFetch;
   });
 
-  it("uses the OIDC sub, so two users never share a scope", async () => {
-    const a = await scopeFor({ access_token: "tok", profile: { sub: "u1" } });
-    const b = await scopeFor({ access_token: "tok", profile: { sub: "u2" } });
+  it("uses the BFF user's sub, so two users never share a scope", async () => {
+    const a = await scopeFor({ sub: "u1", name: "A", roles: {} });
+    const b = await scopeFor({ sub: "u2", name: "B", roles: {} });
 
     expect(a).toBe("u1");
     expect(b).toBe("u2");

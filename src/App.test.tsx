@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
 const { useAuthMock } = vi.hoisted(() => ({ useAuthMock: vi.fn() }));
-vi.mock("react-oidc-context", () => ({ useAuth: useAuthMock }));
+vi.mock("./auth/authContext", () => ({ useAuth: useAuthMock }));
 
 describe("App", () => {
   // Vitest globals are off, so Testing Library does not clean up on its own.

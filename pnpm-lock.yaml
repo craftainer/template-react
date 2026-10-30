@@ -133,11 +133,11 @@ importers:
   .:
     dependencies:
       "@craftainer/crud-sdk":
-        specifier: 0.5.1
-        version: 0.5.1(@tanstack/query-core@5.104.5)
+        specifier: 0.7.0
+        version: 0.7.0(@tanstack/query-core@5.104.5)
       "@craftainer/crud-views":
         specifier: 0.5.1
-        version: 0.5.1(319a24e500b9648a67dc6069b0d1fdef)
+        version: 0.5.1(e73a0e164bfebe3c31f29ec740c43035)
       "@emotion/react":
         specifier: 11.14.0
         version: 11.14.0(@types/react@19.2.18)(react@19.2.8)
@@ -168,18 +168,12 @@ importers:
       motion:
         specifier: 14.4.0
         version: 14.4.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      oidc-client-ts:
-        specifier: 3.5.0
-        version: 3.5.0
       react:
         specifier: 19.2.8
         version: 19.2.8
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
-      react-oidc-context:
-        specifier: 3.3.1
-        version: 3.3.1(oidc-client-ts@3.5.0)(react@19.2.8)
     devDependencies:
       "@axe-core/playwright":
         specifier: 4.14.0
@@ -408,10 +402,10 @@ packages:
       }
     hasBin: true
 
-  "@craftainer/crud-sdk@0.5.1":
+  "@craftainer/crud-sdk@0.7.0":
     resolution:
       {
-        integrity: sha512-YFnjN4tFr4MJDo0MiwvUasoIB/T3QtiW3nYX9wGxmYqtU/3NsYfGKlFLOi4U37REkHEH51tNy/L5Ccza+eJjhw==,
+        integrity: sha512-K2BQ0N+goByY+dirDDno59N3o4MDCmaF+yUwq/qtD+fMkH2CYcWZaz2+DJjUgBEvDIHAJHYh6EJ5xOHvvV304w==,
       }
     engines: { node: ">=24.22.0" }
     hasBin: true
@@ -2904,13 +2898,6 @@ packages:
         integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==,
       }
 
-  jwt-decode@4.0.0:
-    resolution:
-      {
-        integrity: sha512-+KJGIyHgkGuIq3IEBNftfhW/LfWhXUIY6OmyVWjliu5KH1y0fw7VQ8YndE2O4qZdMSd9SqbnC8GOcZEy0Om7sA==,
-      }
-    engines: { node: ">=18" }
-
   lightningcss-android-arm64@1.33.0:
     resolution:
       {
@@ -3160,13 +3147,6 @@ packages:
       }
     engines: { node: ">=12.20.0" }
 
-  oidc-client-ts@3.5.0:
-    resolution:
-      {
-        integrity: sha512-l2q8l9CTCTOlbX+AnK4p3M+4CEpKpyQhle6blQkdFhm0IsBqsxm15bYaSa11G7pWdsYr6epdsRZxJpCyCRbT8A==,
-      }
-    engines: { node: ">=18" }
-
   open@10.2.0:
     resolution:
       {
@@ -3360,16 +3340,6 @@ packages:
       {
         integrity: sha512-RRieF6IyxQBkcK6pP8xOHprLTPW6QjRkbGdImtqNme+/hYVwCZkLQLdlZGOhUqXwkS9IEynaGvPJtv6XB/cz0Q==,
       }
-
-  react-oidc-context@3.3.1:
-    resolution:
-      {
-        integrity: sha512-/Azvm9W4DhhOtSDBE73kFInh1b6zZRRfILKbgmk2syExMF0PCYJOn/dGdOOi2BFX8x0rCeUe45NXHU+/+xDcrQ==,
-      }
-    engines: { node: ">=18" }
-    peerDependencies:
-      oidc-client-ts: ^3.1.0
-      react: ">=16.14.0"
 
   react-transition-group@4.4.5:
     resolution:
@@ -4016,13 +3986,13 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  "@craftainer/crud-sdk@0.5.1(@tanstack/query-core@5.104.5)":
+  "@craftainer/crud-sdk@0.7.0(@tanstack/query-core@5.104.5)":
     optionalDependencies:
       "@tanstack/query-core": 5.104.5
 
-  "@craftainer/crud-views@0.5.1(319a24e500b9648a67dc6069b0d1fdef)":
+  "@craftainer/crud-views@0.5.1(e73a0e164bfebe3c31f29ec740c43035)":
     dependencies:
-      "@craftainer/crud-sdk": 0.5.1(@tanstack/query-core@5.104.5)
+      "@craftainer/crud-sdk": 0.7.0(@tanstack/query-core@5.104.5)
       "@emotion/react": 11.14.0(@types/react@19.2.18)(react@19.2.8)
       "@emotion/styled": 11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8)
       "@mui/material": 9.4.0(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -5340,8 +5310,6 @@ snapshots:
 
   jsonc-parser@3.3.1: {}
 
-  jwt-decode@4.0.0: {}
-
   lightningcss-android-arm64@1.33.0:
     optional: true
 
@@ -5446,10 +5414,6 @@ snapshots:
   object-assign@4.1.1: {}
 
   obug@2.1.4: {}
-
-  oidc-client-ts@3.5.0:
-    dependencies:
-      jwt-decode: 4.0.0
 
   open@10.2.0:
     dependencies:
@@ -5616,11 +5580,6 @@ snapshots:
   react-is@19.2.8: {}
 
   react-is@19.3.1: {}
-
-  react-oidc-context@3.3.1(oidc-client-ts@3.5.0)(react@19.2.8):
-    dependencies:
-      oidc-client-ts: 3.5.0
-      react: 19.2.8
 
   react-transition-group@4.4.5(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:

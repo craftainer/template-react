@@ -1,14 +1,14 @@
-// Stubs for stories: a fake signed-in/out OIDC session and a fake backend,
+// Stubs for stories: a fake signed-in/out BFF session and a fake backend,
 // both chosen per story through `parameters` (see preview.tsx). Stories never
 // touch Keycloak or the real API, so every render is deterministic.
 import type { ReactNode } from "react";
-import { AuthContext, type AuthContextProps } from "react-oidc-context";
+import { AuthContext, type AuthValue } from "../src/auth/authContext";
 import type { Hero } from "../src/api/heroes";
 
 export type AuthState = "signedOut" | "signedIn" | "loading";
 
 export interface ApiStub {
-  /** `GET /api/health/live`: "pending" never answers (the "checking" state). */
+  /** `GET /api/crud/health/live`: "pending" never answers (the "checking" state). */
   health?: "up" | "down" | "pending";
   /** `GET` of the heroes list: rows, "pending" (loading) or an HTTP error. */
   heroes?: Hero[] | "pending" | { status: number; detail: string };
@@ -58,20 +58,22 @@ export const heroFixtures: Hero[] = [
 
 const noop = async () => undefined;
 
-export function stubAuth(state: AuthState): AuthContextProps {
+export function stubAuth(state: AuthState): AuthValue {
   const signedIn = state === "signedIn";
   return {
     isLoading: state === "loading",
     isAuthenticated: signedIn,
     user: signedIn
-      ? ({
-          access_token: "stub-token",
-          profile: { preferred_username: "ada.lovelace" },
-        } as AuthContextProps["user"])
+      ? {
+          sub: "stub-sub",
+          name: "ada.lovelace",
+          roles: { api: ["maintainer"] },
+          expiresAt: 4102444800,
+        }
       : null,
-    signinRedirect: noop,
-    removeUser: noop,
-  } as unknown as AuthContextProps;
+    login: () => undefined,
+    logout: noop,
+  };
 }
 
 export function StubAuthProvider({
@@ -102,13 +104,16 @@ export function installApiStub(api: ApiStub = {}) {
   window.fetch = async (input, init) => {
     const url = new URL(String(input), window.location.origin);
     const method = (init?.method ?? "GET").toUpperCase();
-    if (url.pathname === "/api/health/live") {
+    if (url.pathname === "/api/crud/health/live") {
       if (health === "pending") return never();
       return health === "up"
         ? json(200, { status: "ok" })
         : json(503, { title: "down" });
     }
-    if (url.pathname === "/api/crud/v1/heroes/v2/json" && method === "GET") {
+    if (
+      url.pathname === "/api/crud/crud/v1/heroes/v2/json" &&
+      method === "GET"
+    ) {
       if (heroes === "pending") return never();
       if (!Array.isArray(heroes)) {
         return json(heroes.status, { detail: heroes.detail });

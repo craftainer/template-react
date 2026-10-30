@@ -6,7 +6,7 @@ import { AdminPage } from "./AdminPage";
 import { installAdminStub } from "./adminStub";
 
 const { useAuthMock } = vi.hoisted(() => ({ useAuthMock: vi.fn() }));
-vi.mock("react-oidc-context", () => ({ useAuth: useAuthMock }));
+vi.mock("../auth/authContext", () => ({ useAuth: useAuthMock }));
 
 describe("AdminPage", () => {
   const realFetch = window.fetch;
@@ -14,7 +14,7 @@ describe("AdminPage", () => {
   beforeEach(() => {
     useAuthMock.mockReturnValue({
       isAuthenticated: true,
-      user: { access_token: "tok", profile: { sub: "u1" } },
+      user: { sub: "u1", name: "Ada", roles: { api: ["maintainer"] } },
     });
   });
   afterEach(() => {
@@ -56,13 +56,10 @@ describe("AdminPage", () => {
   });
 
   it("offers Add record only to a caller whose roles may write", async () => {
-    const jwt = (roles: string[]) =>
-      `h.${btoa(JSON.stringify({ resource_access: { api: { roles } } }))}.s`;
     const signedInAs = (roles: string[]) =>
       useAuthMock.mockReturnValue({
         isAuthenticated: true,
-        settings: { client_id: "api" },
-        user: { access_token: jwt(roles), profile: { sub: "u1" } },
+        user: { sub: "u1", name: "Ada", roles: { api: roles } },
       });
 
     installAdminStub();
@@ -109,7 +106,7 @@ describe("AdminPage", () => {
     const stub = installAdminStub();
     const patch = (ifMatch: string) =>
       window.fetch(
-        `${window.location.origin}/api/crud/v1/heroes/v2/json?id=1`,
+        `${window.location.origin}/api/crud/crud/v1/heroes/v2/json?id=1`,
         {
           method: "PATCH",
           headers: { "If-Match": ifMatch, "Content-Type": "application/json" },

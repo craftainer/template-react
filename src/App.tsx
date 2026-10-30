@@ -6,7 +6,7 @@ import Container from "@mui/material/Container";
 import Stack from "@mui/material/Stack";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
-import { useAuth } from "react-oidc-context";
+import { useAuth } from "./auth/authContext";
 import { HealthStatus } from "./components/HealthStatus";
 import { AdminPage } from "./pages/AdminPage";
 
@@ -33,9 +33,9 @@ function App() {
                   noWrap
                   sx={{ maxWidth: { xs: "6rem", sm: "none" } }}
                 >
-                  {auth.user?.profile.preferred_username}
+                  {auth.user?.name}
                 </Typography>
-                <Button size="small" onClick={() => auth.removeUser()}>
+                <Button size="small" onClick={() => void auth.logout()}>
                   Sign out
                 </Button>
               </>
@@ -43,7 +43,7 @@ function App() {
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => auth.signinRedirect()}
+                onClick={() => auth.login()}
                 sx={{ whiteSpace: "nowrap" }}
               >
                 Sign in
