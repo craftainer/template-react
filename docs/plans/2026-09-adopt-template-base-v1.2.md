@@ -6,7 +6,13 @@ In progress — steps 2–6 done on `chore/adopt-template-base-v1.2`
 (local v1.0.0 → v1.2.3 apply, checks and an arm64 `make build sbom
 release-assets` + image smoke test pass). Remaining: devcontainer
 rebuild, the post-merge repo settings and sync bootstrap (step 7), then
-the upstream fixes (step 1) and the sign-in check (step 8).
+the upstream fixes (step 1).
+
+Update 2026-10-30: the sign-in/issuer check (former step 8) moved to
+the template-base plan
+[`2026-10-bff-wellknown-analytics-owasp.md`](https://github.com/craftainer/template-base/blob/main/docs/plans/2026-10-bff-wellknown-analytics-owasp.md),
+item BK1 (that file lives in the template-base workspace until it is
+committed there).
 
 ## Goal
 
@@ -54,8 +60,8 @@ on template sync. `template-fastapi` went through the same steps in
 
 ## Approach
 
-In-repo steps 2–7 come first; step 1's upstream fixes and step 8 follow
-once this repo is on v1.2.3.
+In-repo steps 2–7 come first; step 1's upstream fixes follow once this
+repo is on v1.2.3.
 
 ### 1. Upstream fixes (after this repo's own migration)
 
@@ -79,7 +85,8 @@ In `template-base`:
   step 5.
 
 Nothing in `template-fastapi` has to change for the base migration
-itself. See step 8 for one auth issue that needs verifying there.
+itself. The one auth issue found during review (token issuer) moved to
+the template-base plan (see Status).
 
 ### 2. Move customizations into the hooks (this repo, before syncing)
 
@@ -203,23 +210,14 @@ After merging:
   `template_repo=craftainer/template-base`. That opens the bootstrap
   PR, and later syncs are incremental.
 
-### 8. Frontend sign-in against template-fastapi (verify, likely a fastapi fix)
-
-Unrelated to the base migration, but found during this review and not
-yet verified end-to-end. The browser gets tokens through the forwarded
-`localhost:8080`, so their `iss` is
-`http://localhost:8080/realms/template-fastapi`. The backend validates
-`issuer=OIDC_ISSUER_URL=http://keycloak:8080/...` (`src/app/oidc.py`),
-and Keycloak sets no `KC_HOSTNAME`. So every API call from this app
-probably gets a 401. If sign-in → `/api/...` confirms it, fix it in
-template-fastapi: pin Keycloak's frontend hostname
-(`KC_HOSTNAME=http://localhost:8080` + `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true`)
-and have `oidc.py` take the expected issuer separately from the
-in-network discovery URL.
-
 ## Decisions
 
 - Release arches: `amd64` and `arm64`, both native runners.
 - GHCR auth: a PAT in `OCI_REGISTRY_PASSWORD`; no upstream change to
   `release.yml` needed.
 - `src/` is `ignore` tier for downstream instances (step 4).
+- 2026-10-30: step 8 (frontend sign-in against template-fastapi, the
+  `iss`/`KC_HOSTNAME` issue) moved to the template-base plan
+  [`2026-10-bff-wellknown-analytics-owasp.md`](https://github.com/craftainer/template-base/blob/main/docs/plans/2026-10-bff-wellknown-analytics-owasp.md),
+  item BK1 (user decision of 2026-10-29). That file lives in the
+  template-base workspace until committed.
