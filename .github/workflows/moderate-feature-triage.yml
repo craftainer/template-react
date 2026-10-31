@@ -9,10 +9,8 @@ on:
   issues:
     types: [opened, reopened]
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+# Least privilege: only the `triage` job gets write scopes.
+permissions: {}
 
 concurrency:
   group: moderate-issue-${{ github.event.issue.number }}
@@ -42,12 +40,18 @@ jobs:
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     env:
       GH_TOKEN: ${{ github.token }}
       GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Whatever state this issue was in before it was closed, reopening it
       # restarts triage from scratch rather than resuming stale state -- see
@@ -68,9 +72,10 @@ jobs:
           printf '%s' "${{ secrets.ANTHROPIC_API_KEY }}" > .secrets/claude.txt
 
       - name: Run Claude feature triage
-        uses: devcontainers/ci@v0.3
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
         with:
           runCmd: >-
+            gh auth setup-git &&
             .github/scripts/run_claude.sh
             .github/scripts/prompts/feature-triage.md
             "Read,Grep,Glob,Write,Edit,Bash(git *),Bash(gh issue *),Bash(gh repo view:*)${{ vars.MODERATION_EXTRA_TOOLS && format(',{0}', vars.MODERATION_EXTRA_TOOLS) || '' }}"
@@ -88,5 +93,5 @@ jobs:
         if: always()
         run: |
           docker compose \
-            -p ${{ env.COMPOSE_PROJECT_NAME }} \
+            -p "$COMPOSE_PROJECT_NAME" \
             down --volumes --remove-orphans

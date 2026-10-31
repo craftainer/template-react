@@ -19,7 +19,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Create moderation labels
         run: |
@@ -27,12 +29,12 @@ jobs:
             gh label create "$1" --color "$2" --description "$3" --force
           }
           create "bug:needs-info"          "d4c5f9" "Bug triage needs more information from the reporter"
-          create "bug:repro-ready"         "d4c5f9" "Bug triage pushed a failing-test repro, awaiting reporter /confirm"
-          create "bug:confirmed"           "d4c5f9" "Reporter confirmed the repro; fix is running"
+          create "bug:repro-ready"         "d4c5f9" "Bug triage pushed a failing-test repro, awaiting a maintainer's bug:confirm label"
+          create "bug:confirm"             "d4c5f9" "Maintainer action: confirm the repro and start the fix (removed when the fix run starts)"
           create "bug:fixed"               "d4c5f9" "Fix PR opened, awaiting human review/merge"
           create "enhancement:not-a-fit"   "c5def5" "Feature triage judged this out of scope"
-          create "enhancement:plan-ready"  "c5def5" "Feature triage pushed a plan doc, awaiting reporter /confirm"
-          create "enhancement:confirmed"   "c5def5" "Reporter confirmed the plan; build is running"
+          create "enhancement:plan-ready"  "c5def5" "Feature triage pushed a plan doc, awaiting a maintainer's enhancement:confirm label"
+          create "enhancement:confirm"     "c5def5" "Maintainer action: confirm the plan and start the build (removed when the build run starts)"
           create "enhancement:built"       "c5def5" "Build PR opened, awaiting human review/merge"
           create "claude:ok"               "0e8a16" "Maintainer opt-in: run the moderation pipeline for this issue despite the reporter not being a collaborator"
           create "needs-human"             "b60205" "The moderation pipeline got stuck and needs a maintainer"

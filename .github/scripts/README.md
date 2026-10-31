@@ -98,16 +98,6 @@
   read-after-write lag for refs, so the error says to re-run once the tag is
   visible. Tested against a fake `gh` in
   `test_release_scripts.py`.
-- `find_moderation_result.sh` / `test_moderation_scripts.py` — the check
-  step shared by `../workflows/moderate-bug-fix-apply.yml` and
-  `../workflows/moderate-feature-build-apply.yml`: asks the API for the
-  `moderation-result` artifact by name (so it is found however many
-  artifacts the run has) and writes `found=true|false`. It fails on an
-  expired artifact (a produced result that can no longer be applied; the
-  message says to re-run the worker run, since re-running the apply run
-  cannot bring the artifact back), an
-  API error, and an empty or unrecognised response. The tests run it
-  against a fake `gh`.
 - `run_claude.sh` — invokes `claude -p` for one issue-moderation stage
   inside the devcontainer; shared by all four Claude-invoking
   `../workflows/moderate-*.yml` jobs. See `../workflows/README.md`'s
