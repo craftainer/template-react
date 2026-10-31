@@ -175,8 +175,11 @@ run_prek_installer() {
         env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
 }
 
+# CLAUDE_CONFIG_DIR matches compose.yml's, so anything the installer writes
+# lands where Claude Code will look for it at runtime.
 run_claude_installer() {
-    sudo -u vscode env HOME=/home/vscode bash "$installer_script" "$claude_code_version"
+    sudo -u vscode env HOME=/home/vscode CLAUDE_CONFIG_DIR=/home/vscode/.claude \
+        bash "$installer_script" "$claude_code_version"
 }
 
 # xz-utils: Node's own release tarballs are .tar.xz.
@@ -240,6 +243,11 @@ download_installer prek "https://github.com/j178/prek/releases/download/v${prek_
 retry run_prek_installer
 ln -s /home/vscode/.local/bin/prek /usr/local/bin/prek
 
+# Created here, owned by vscode, because a fresh claude-config volume
+# (compose.yml) copies this directory's ownership and mode on first mount;
+# left to the installer it could be missing or root-owned. 0700: it holds
+# Claude Code's credentials.
+sudo -u vscode install -d -m 0700 /home/vscode/.claude
 download_installer claude https://claude.ai/install.sh
 retry run_claude_installer
 ln -s /home/vscode/.local/bin/claude /usr/local/bin/claude

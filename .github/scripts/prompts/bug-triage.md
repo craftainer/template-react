@@ -52,8 +52,8 @@ comment and a label -- never leave the issue untouched.
 
 - Look up this repo's slug and comment a link to the branch's diff
   against the default branch, plus a short summary of the failing test,
-  asking the reporter to reply exactly `/confirm` if this matches what
-  they're seeing:
+  asking a maintainer to add the `bug:confirm` label once the reporter
+  has said this matches what they're seeing:
 
       repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
       gh issue comment "$GITHUB_ISSUE_NUMBER" --body "... https://github.com/$repo/compare/main...bug/$GITHUB_ISSUE_NUMBER-repro ..."

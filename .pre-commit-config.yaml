@@ -128,6 +128,46 @@ repos:
         pass_filenames: false
         stages: [pre-commit, manual]
 
+  # Supply-chain/secret scanners (OWASP A01/A03/A04/A08 -- see
+  # docs/TEMPLATE.md's "Checks"). Revs are tags, not SHAs: Renovate's
+  # pre-commit manager bumps tags directly, and a SHA + "# frozen: vX"
+  # comment is pre-commit.ci's convention that it doesn't maintain.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.31.1
+    hooks:
+      # Offline when run locally (no token); checks.yml passes GH_TOKEN
+      # through to the devcontainer so CI also runs the online audits.
+      - id: zizmor
+        stages: [pre-commit, manual]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      # Staged changes only, on every commit. Config: .gitleaks.toml.
+      - id: gitleaks
+        stages: [pre-commit]
+      # Full-history scan, only on demand / in CI. Same repo and rev, so
+      # it can't drift from the hook above; the entry override drops the
+      # --pre-commit/--staged flags the upstream hook passes.
+      - id: gitleaks
+        alias: gitleaks-history
+        name: gitleaks (full git history)
+        entry: gitleaks git --redact --verbose
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
+
+  - repo: https://github.com/google/osv-scanner
+    rev: v2.7.0
+    hooks:
+      # Online (queries osv.dev). Only runs when a supported lockfile is
+      # in the file set: with none, osv-scanner exits 128 ("no packages
+      # found"), which would fail lockfile-less repos like this one.
+      - id: osv-scanner
+        stages: [manual]
+        always_run: false
+        files: (^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lock|uv\.lock|poetry\.lock|pdm\.lock|Pipfile\.lock|pylock\.toml|Cargo\.lock|requirements[^/]*\.txt)$
+
   # template-docker's image-layer hooks (docs/TEMPLATE.md's "Image layer").
   - repo: local
     hooks:
@@ -169,6 +209,20 @@ repos:
         always_run: true
         stages: [manual]
 
+      # Passive DAST of the built image: loads the tar from dist/, runs it as
+      # image-smoke does and runs the ZAP baseline scan against it (ADR 0002;
+      # the ZAP pin is in scripts/image-dast.sh, rule levels in the
+      # instance-owned .zap/rules.tsv). Manual stage only: it needs
+      # `make build` to have produced the tar, Docker and network to pull the
+      # ZAP image. Skips cleanly with no tar.
+      - id: image-dast
+        name: image-dast (ZAP baseline, passive)
+        entry: bash scripts/image-dast.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
+
       # Offline tests of the scripts and Makefile logic above (repo
       # derivation, version-check edge cases, smoke-test failure on a missing
       # tar); needs no Docker.
@@ -176,6 +230,6 @@ repos:
         name: image-scripts-test (Makefile and scripts/ behaviour)
         entry: bash scripts/test-image-scripts.sh
         language: system
-        files: ^(Makefile|scripts/(check-dockerfile-versions|image-scan|image-smoke|skopeo|test-image-scripts)\.sh)$
+        files: ^(Makefile|scripts/(check-dockerfile-versions|image-scan|image-dast|image-smoke|skopeo|test-image-scripts)\.sh)$
         pass_filenames: false
         stages: [pre-commit, manual]

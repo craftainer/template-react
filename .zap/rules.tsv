@@ -1,0 +1,11 @@
+# Instance-owned rule levels for the ZAP baseline scan (scripts/image-dast.sh).
+# One rule per line, three tab-separated columns:
+#   <rule id>	IGNORE|WARN|FAIL	(<rule name>)
+# A rule not listed here is a WARN: it is reported, and the scan still
+# passes (zap-baseline.py exits 2). Only FAIL fails it (exit 1).
+# Add a rule only with a reason in a comment above it. Do not add blanket
+# IGNOREs: that hides findings instead of triaging them.
+#
+# Find rule ids in the scan's output or dist/dast/report.json, e.g.
+# 10038 is "Content Security Policy (CSP) Header Not Set":
+# 10038	FAIL	(Content Security Policy (CSP) Header Not Set)

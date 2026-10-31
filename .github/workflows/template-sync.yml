@@ -40,8 +40,9 @@ jobs:
       # create or update files under .github/workflows/ -- which most
       # syncs touch. Falls back to GITHUB_TOKEN for a sync that doesn't.
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           token: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
 
       # Belt-and-suspenders against a self-sync loop: this workflow ships
@@ -54,16 +55,20 @@ jobs:
       # a state file that would sync the template to itself forever after.
       - name: Refuse to sync a repo against itself
         if: inputs.template_repo != '' && inputs.template_repo == github.repository
+        env:
+          INPUT_TEMPLATE_REPO: ${{ inputs.template_repo }}
         run: |
-          echo "::error::template_repo (${{ inputs.template_repo }}) is this same repository -- refusing to bootstrap a self-sync loop." >&2
+          echo "::error::template_repo ($INPUT_TEMPLATE_REPO) is this same repository -- refusing to bootstrap a self-sync loop." >&2
           exit 1
 
       - name: Check sync cadence
         id: cadence
         if: github.event_name == 'schedule'
+        env:
+          SYNC_INTERVAL: ${{ vars.TEMPLATE_SYNC_INTERVAL || 'weekly' }}
         run: |
           if ! python3 .github/scripts/template_sync.py check-cadence \
-              --interval "${{ vars.TEMPLATE_SYNC_INTERVAL || 'weekly' }}"; then
+              --interval "$SYNC_INTERVAL"; then
             echo "Not this interval's scheduled week -- no-op."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
@@ -71,22 +76,27 @@ jobs:
       - name: Bootstrap state file
         if: steps.cadence.outputs.skip != 'true' && inputs.initial_sync_tag != ''
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Same token checkout used to persist for the push below.
+          GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
+          INPUT_TEMPLATE_REPO: ${{ inputs.template_repo }}
+          INPUT_SYNC_TAG: ${{ inputs.initial_sync_tag }}
         run: |
+          # Checkout doesn't persist credentials; git push uses gh's helper.
+          gh auth setup-git
           python3 .github/scripts/template_sync.py write-state \
             --state-file "$STATE_FILE" \
-            --template-repo "${{ inputs.template_repo }}" \
-            --synced-tag "${{ inputs.initial_sync_tag }}"
+            --template-repo "$INPUT_TEMPLATE_REPO" \
+            --synced-tag "$INPUT_SYNC_TAG"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          branch="template-sync/bootstrap-${{ inputs.initial_sync_tag }}"
+          branch="template-sync/bootstrap-$INPUT_SYNC_TAG"
           git checkout -b "$branch"
           git add "$STATE_FILE"
-          git commit -m "chore(template-sync): bootstrap state at ${{ inputs.initial_sync_tag }}"
+          git commit -m "chore(template-sync): bootstrap state at $INPUT_SYNC_TAG"
           git push -u origin "$branch"
           gh pr create \
-            --title "chore(template-sync): bootstrap state at ${{ inputs.initial_sync_tag }}" \
-            --body "Seeds \`$STATE_FILE\` pointing \`template_repo\` at \`${{ inputs.template_repo }}\` @ \`${{ inputs.initial_sync_tag }}\`. No other files are touched by this bootstrap run -- the next scheduled or manual sync diffs against newer tags and opens its own PR."
+            --title "chore(template-sync): bootstrap state at $INPUT_SYNC_TAG" \
+            --body "Seeds \`$STATE_FILE\` pointing \`template_repo\` at \`$INPUT_TEMPLATE_REPO\` @ \`$INPUT_SYNC_TAG\`. No other files are touched by this bootstrap run -- the next scheduled or manual sync diffs against newer tags and opens its own PR."
 
       - name: Read current sync state
         id: state
@@ -109,14 +119,17 @@ jobs:
         if: steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true' && inputs.initial_sync_tag == ''
         env:
           GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
+          TEMPLATE_REPO: ${{ steps.state.outputs.template_repo }}
+          SYNC_CHANNEL: ${{ vars.TEMPLATE_SYNC_CHANNEL || 'stable' }}
+          SYNCED_TAG: ${{ steps.state.outputs.synced_tag }}
         run: |
-          gh api "repos/${{ steps.state.outputs.template_repo }}/tags" --paginate --jq '.[].name' \
+          gh api "repos/$TEMPLATE_REPO/tags" --paginate --jq '.[].name' \
             > /tmp/template-tags.txt
           new_tag=$(python3 .github/scripts/template_sync.py select-tag \
-            --channel "${{ vars.TEMPLATE_SYNC_CHANNEL || 'stable' }}" \
+            --channel "$SYNC_CHANNEL" \
             < /tmp/template-tags.txt | cut -d= -f2)
           echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
-          if [ "$new_tag" = "${{ steps.state.outputs.synced_tag }}" ]; then
+          if [ "$new_tag" = "$SYNCED_TAG" ]; then
             echo "Already synced to $new_tag -- no-op."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
@@ -125,11 +138,14 @@ jobs:
         if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
+          TEMPLATE_REPO: ${{ steps.state.outputs.template_repo }}
+          SYNCED_TAG: ${{ steps.state.outputs.synced_tag }}
+          NEW_TAG: ${{ steps.tags.outputs.new_tag }}
         run: |
-          gh repo clone "${{ steps.state.outputs.template_repo }}" /tmp/template-old -- \
-            --depth 1 --branch "${{ steps.state.outputs.synced_tag }}"
-          gh repo clone "${{ steps.state.outputs.template_repo }}" /tmp/template-new -- \
-            --depth 1 --branch "${{ steps.tags.outputs.new_tag }}"
+          gh repo clone "$TEMPLATE_REPO" /tmp/template-old -- \
+            --depth 1 --branch "$SYNCED_TAG"
+          gh repo clone "$TEMPLATE_REPO" /tmp/template-new -- \
+            --depth 1 --branch "$NEW_TAG"
 
       - name: Apply replace and merge tiers
         id: apply
@@ -179,36 +195,44 @@ jobs:
 
       - name: Update sync state
         if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
+        env:
+          TEMPLATE_REPO: ${{ steps.state.outputs.template_repo }}
+          NEW_TAG: ${{ steps.tags.outputs.new_tag }}
         run: |
           python3 .github/scripts/template_sync.py write-state \
             --state-file "$STATE_FILE" \
-            --template-repo "${{ steps.state.outputs.template_repo }}" \
-            --synced-tag "${{ steps.tags.outputs.new_tag }}"
+            --template-repo "$TEMPLATE_REPO" \
+            --synced-tag "$NEW_TAG"
 
       - name: Open sync PR
         if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
+          TEMPLATE_REPO: ${{ steps.state.outputs.template_repo }}
+          SYNCED_TAG: ${{ steps.state.outputs.synced_tag }}
+          NEW_TAG: ${{ steps.tags.outputs.new_tag }}
         run: |
+          # Checkout doesn't persist credentials; git push uses gh's helper.
+          gh auth setup-git
           if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain)" ]; then
             echo "Nothing changed -- no-op."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          branch="template-sync/${{ steps.tags.outputs.new_tag }}"
+          branch="template-sync/$NEW_TAG"
           git checkout -b "$branch"
           git add -A
-          git commit -m "chore(template-sync): sync to ${{ steps.tags.outputs.new_tag }}"
+          git commit -m "chore(template-sync): sync to $NEW_TAG"
           git push -u origin "$branch"
 
           python3 /tmp/template-new/.github/scripts/template_sync.py pr-body \
             --summary /tmp/apply-summary.json \
-            --old-tag "${{ steps.state.outputs.synced_tag }}" \
-            --new-tag "${{ steps.tags.outputs.new_tag }}" \
-            --template-repo "${{ steps.state.outputs.template_repo }}" \
+            --old-tag "$SYNCED_TAG" \
+            --new-tag "$NEW_TAG" \
+            --template-repo "$TEMPLATE_REPO" \
             > /tmp/pr-body.md
 
           gh pr create \
-            --title "chore(template-sync): sync to ${{ steps.tags.outputs.new_tag }}" \
+            --title "chore(template-sync): sync to $NEW_TAG" \
             --body-file /tmp/pr-body.md

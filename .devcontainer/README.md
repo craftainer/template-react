@@ -16,7 +16,8 @@
   It also declares the optional `github_token` build secret (from the
   `GITHUB_TOKEN` environment variable, which CI exports) that
   authenticates `../scripts/develop.sh`'s downloads; unset locally, it is
-  simply absent.
+  simply absent. Its `environment:` sets `CLAUDE_CONFIG_DIR` to the
+  `claude-config` volume's mount path (see "Do").
 - `compose.instance.yml` — instance-owned stub (`ignore` tier, never
   touched by sync): an instance's `include:` list and extra `services.myapp`
   settings. See `docs/TEMPLATE.md`'s "Instance extension points".
@@ -155,6 +156,21 @@ need the window reconnected, not a fresh image.
   not by Renovate: Renovate can't regenerate this file, so
   `../.github/renovate.json` turns its devcontainer feature updates
   off rather than let them merge with a stale lockfile.
+- Change `CLAUDE_CONFIG_DIR` (`compose.yml`'s `services.myapp`
+  `environment:`), `claude-config`'s mount path and the
+  `/home/vscode/.claude` paths in `../scripts/develop.sh` together.
+  develop.sh creates that directory owned by `vscode` at mode 0700, so a
+  fresh volume starts out writable by Claude Code. The
+  variable points Claude Code at the volume for all its state. Without
+  it, Claude Code keeps `.claude.json` (account, MCP servers,
+  per-project trust) at `~/.claude.json`, outside the volume, so a
+  rebuild loses it and first-launch setup runs again. See Claude Code's
+  [dev container docs](https://code.claude.com/docs/en/devcontainer#persist-authentication-and-settings-across-rebuilds).
+  The variable, or a new mount path, takes effect only on a full
+  rebuild, and that first rebuild still starts without `.claude.json`.
+  To keep it, quit Claude Code and run
+  `cp ~/.claude.json ~/.claude/.claude.json` (into the volume) as the
+  last step before rebuilding, or sign in once more afterwards.
 
 ## Don't
 
@@ -162,7 +178,8 @@ need the window reconnected, not a fresh image.
   else you don't want a host antivirus/DLP tool scanning or syncing — it
   lives purely in the container's writable layer instead. (`claude-config`
   and `gh-config` are deliberate, narrow exceptions — small login and
-  session state; see `compose.yml`'s comments on those volumes.)
+  session state, including Claude Code's `.claude.json`; see
+  `compose.yml`'s comments on those volumes.)
 - Add a `ports:` mapping or a `networks:` block anywhere here.
 - Pin a feature or image version as `latest` — pin the exact version so
   Renovate can bump it deliberately.

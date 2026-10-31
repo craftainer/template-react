@@ -27,6 +27,10 @@
   (an nginx runner, say) ignores it and `runner-setup.d/`.
 - `image-scan.sh` — the manual-stage `image-scan` hook: Trivy over the
   tar for the current `RELEASE_VERSION`/arch in `dist/`.
+- `image-dast.sh` — the manual-stage `image-dast` hook: starts the image from the
+  tar in `dist/` as `image-smoke.sh` does and runs the pinned ZAP baseline scan
+  (passive) in its network namespace, with rule levels from the
+  instance-owned `.zap/rules.tsv`; reports go to `dist/dast/`.
 - `test-image-scripts.sh` — the `image-scripts-test` hook: offline tests of
   the Makefile's repo derivation and these scripts.
 - `image-smoke.sh` — `make image-smoke` (a `release-check` prerequisite):
