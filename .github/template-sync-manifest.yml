@@ -153,6 +153,9 @@ ignore:
   # `pnpm install` after a sync PR changes package.json.
   - pnpm-lock.yaml
 
+  # The instance's own time-boxed osv-scanner advisory ignores.
+  - osv-scanner.toml
+
   # The app itself: the generic CRUD client and Heroes example are a
   # starting point an instance owns from the moment it's instantiated, so a
   # sync never overwrites its code or static assets.
