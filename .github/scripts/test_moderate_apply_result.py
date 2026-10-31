@@ -56,7 +56,7 @@ PR_CREATE = [
 SWAP = "gh issue edit 7 --remove-label bug:repro-ready --remove-label needs-human --add-label bug:fixed"
 NEEDS_HUMAN = "gh issue edit 7 --add-label needs-human"
 VIEW = "gh issue view 7 --json labels --jq .labels[].name"
-LIST = f"gh pr list --head {BRANCH} --state open --json number,url --jq .[0].url // \"\""
+LIST = f'gh pr list --head {BRANCH} --state open --json number,url --jq .[0].url // ""'
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq not installed (the script parses meta.json with it)")
@@ -144,7 +144,13 @@ class ApplyResultTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(
             self.log(),
-            [VIEW, *self.setup_calls(), f"git ls-remote origin refs/heads/{BRANCH}", self.push(), LIST]
+            [
+                VIEW,
+                *self.setup_calls(),
+                f"git ls-remote origin refs/heads/{BRANCH}",
+                self.push(),
+                LIST,
+            ]
             + PR_CREATE
             + [SWAP],
         )
@@ -206,7 +212,10 @@ class ApplyResultTest(unittest.TestCase):
         log = self.log()
         self.assertEqual(proc.returncode, 1)
         self.assertIn(NEEDS_HUMAN, log)
-        self.assertLess(log.index(NEEDS_HUMAN), next(i for i, c in enumerate(log) if c.startswith("gh issue comment")))
+        self.assertLess(
+            log.index(NEEDS_HUMAN),
+            next(i for i, c in enumerate(log) if c.startswith("gh issue comment")),
+        )
         self.assertNotIn(SWAP, log)
 
     def test_fail_omits_run_link_without_env(self) -> None:
@@ -223,7 +232,10 @@ class ApplyResultTest(unittest.TestCase):
         log = self.log()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn(self.push("def456"), log)
-        self.assertNotIn("--force", " ".join(c for c in log if c.startswith("git push")).replace("--force-with-lease", ""))
+        self.assertNotIn(
+            "--force",
+            " ".join(c for c in log if c.startswith("git push")).replace("--force-with-lease", ""),
+        )
         self.assertFalse([c for c in log if c.startswith("gh pr create")])
         self.assertEqual(log[-2:], [LIST, SWAP])
 
@@ -233,7 +245,9 @@ class ApplyResultTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(
             [c for c in self.log() if c.startswith("gh issue edit")],
-            ["gh issue edit 7 --remove-label bug:repro-ready --remove-label needs-human --add-label bug:fixed"],
+            [
+                "gh issue edit 7 --remove-label bug:repro-ready --remove-label needs-human --add-label bug:fixed"
+            ],
         )
 
     def test_retry_refuses_foreign_branch_tip(self) -> None:

@@ -87,6 +87,10 @@
   that label the test fails until you look up the new image's `python3`
   (actions/runner-images) and update `RUNNER_IMAGE_PYTHON`, `RUNNER_PYTHON` and
   `ruff.toml` together.
+- `test_moderate_labels.py` — checks that every `create "<name>" "<color>"
+  "<description>"` line in `../workflows/moderate-setup.yml` has a description
+  of at most 100 characters (GitHub answers HTTP 422 to a longer one, and only
+  the manually dispatched workflow would ever show it); `scripts-tests` runs it.
 - `verify_release_tag.sh` — the `release` job's check that an already
   published release's tag points at the commit the run built (fails closed;
   retries only transient lookup errors, six attempts over about two
