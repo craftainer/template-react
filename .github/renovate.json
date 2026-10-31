@@ -124,6 +124,18 @@
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "aquasec/trivy"
+    },
+    {
+      "description": "The ZAP image pinned by tag and digest in scripts/image-dast.sh; Renovate updates both.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^scripts/image-dast\\.sh$/"
+      ],
+      "matchStrings": [
+        "zap=ghcr\\.io/zaproxy/zaproxy:(?<currentValue>[0-9][^@\\s]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/zaproxy/zaproxy"
     }
   ]
 }

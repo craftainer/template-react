@@ -106,6 +106,7 @@ replace:
   - scripts/runner-setup.d/README.md
   - scripts/check-dockerfile-versions.sh
   - scripts/image-scan.sh
+  - scripts/image-dast.sh
   - scripts/skopeo.sh
   - scripts/test-image-scripts.sh
 
@@ -171,6 +172,10 @@ ignore:
 
   # Env-var documentation for the instance's own deployment.
   - .env.example
+
+  # The instance's ZAP baseline rule levels (seeded with a commented header;
+  # an instance adds its own FAIL/IGNORE lines, with a reason each).
+  - .zap/rules.tsv
 
   # Product/domain knowledge and working plans: instance-owned from the
   # moment it's instantiated.

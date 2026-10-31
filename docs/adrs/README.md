@@ -15,6 +15,8 @@ those belong in each directory's own `README.md` instead).
   recording — one that's costly to reverse, affects multiple parts of
   the app, or that a future contributor would otherwise have to
   rediscover by reading git history.
+- An ADR becomes Accepted when its implementation merges; until then
+  its Status is `Proposed`.
 - Record a decision that reverses an earlier one as a new ADR that says
   so in its Context, and update the old ADR's Status to
   `Superseded by NNNN` — never edit an accepted ADR's Decision itself.

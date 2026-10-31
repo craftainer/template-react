@@ -209,6 +209,20 @@ repos:
         always_run: true
         stages: [manual]
 
+      # Passive DAST of the built image: loads the tar from dist/, runs it as
+      # image-smoke does and runs the ZAP baseline scan against it (ADR 0002;
+      # the ZAP pin is in scripts/image-dast.sh, rule levels in the
+      # instance-owned .zap/rules.tsv). Manual stage only: it needs
+      # `make build` to have produced the tar, Docker and network to pull the
+      # ZAP image. Skips cleanly with no tar.
+      - id: image-dast
+        name: image-dast (ZAP baseline, passive)
+        entry: bash scripts/image-dast.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
+
       # Offline tests of the scripts and Makefile logic above (repo
       # derivation, version-check edge cases, smoke-test failure on a missing
       # tar); needs no Docker.
@@ -216,6 +230,6 @@ repos:
         name: image-scripts-test (Makefile and scripts/ behaviour)
         entry: bash scripts/test-image-scripts.sh
         language: system
-        files: ^(Makefile|scripts/(check-dockerfile-versions|image-scan|image-smoke|skopeo|test-image-scripts)\.sh)$
+        files: ^(Makefile|scripts/(check-dockerfile-versions|image-scan|image-dast|image-smoke|skopeo|test-image-scripts)\.sh)$
         pass_filenames: false
         stages: [pre-commit, manual]

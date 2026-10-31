@@ -162,7 +162,7 @@ already establishes for `ruff`/`mypy`/`pytest`/`pip-audit`.
   ```toml
   [[IgnoredVulns]]
   id = "GHSA-xxxx-xxxx-xxxx"
-  effectiveUntil = 2027-01-31
+  ignoreUntil = 2027-01-31
   reason = "Not reachable: we never call the affected parser"
   ```
 
@@ -395,6 +395,8 @@ these files over base:
 | `scripts/image-smoke.sh` | `replace` | loads the image tar from `dist/`, runs it and polls a URL |
 | `scripts/runner-setup.sh` | `replace` | optional: creates the group-0 runtime user and its writable directories for the `runner` stage |
 | `scripts/image-scan.sh` | `replace` | the Trivy scan the `image-scan` hook runs |
+| `scripts/image-dast.sh` | `replace` | the ZAP baseline scan the `image-dast` hook runs |
+| `.zap/rules.tsv` | `ignore` | the instance's ZAP rule levels, seeded with a commented header |
 | `scripts/test-image-scripts.sh` | `replace` | offline tests of the Makefile and `scripts/` logic, run by the `image-scripts-test` hook |
 | `scripts/runner-setup.d/*.sh` | `ignore` | optional: the instance's runner-stage hooks |
 | `scripts/check-dockerfile-versions.sh` | `replace` | the version-ARG consistency check |
@@ -583,6 +585,22 @@ in its `.pre-commit-config.yaml`; ARGs not listed aren't checked.
   'https://token.actions.githubusercontent.com'
   ghcr.io/aquasecurity/trivy@sha256:…` (the Docker Hub, GHCR and ECR
   digests of a release are identical).
+
+- `image-dast` runs only at the `manual` stage, for the same reasons as
+  `image-scan`, and skips the same way when `dist/` has no tar for the
+  current `RELEASE_VERSION`/arch. Otherwise `scripts/image-dast.sh` starts
+  the image the way `image-smoke.sh` does (same `IMAGE_SMOKE_*` settings,
+  read from the Makefile and `image.mk` when run outside `make`), waits for
+  the smoke URL, then runs the pinned ZAP baseline image
+  (`ghcr.io/zaproxy/zaproxy:<version>@sha256:…`, bumped by Renovate) in the
+  app container's network namespace. The scan is passive only (headers,
+  cookies, information leaks; OWASP A02, A07) and writes `dist/dast/report.html` and
+  `report.json`. Rule levels come from the instance-owned `.zap/rules.tsv`
+  (`id`, `IGNORE|WARN|FAIL`, `(name)`, tab-separated; seeded with a
+  commented header and no rules). A rule not listed is a WARN. Exit 0 and 2
+  (warnings only) pass; 1 (a rule at FAIL) and 3 (ZAP error) fail. The spider
+  starts at `IMAGE_DAST_PATH` (default `IMAGE_SMOKE_PATH`) for
+  `IMAGE_DAST_SPIDER_MINS` minutes (default 1). ADR 0002 records the choice.
 
 ### Re-parenting an existing app onto template-docker
 
