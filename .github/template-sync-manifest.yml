@@ -53,6 +53,8 @@ replace:
   - .vscode/settings.json
   # Listed one by one, not as a glob: .github/workflows/README.md is merge.
   - .github/workflows/checks.yml
+  # The two -apply workflows were folded into their fix/build workflows
+  # (an `apply` job); the lines stay as tombstones so a sync removes them.
   - .github/workflows/moderate-bug-fix-apply.yml
   - .github/workflows/moderate-bug-fix.yml
   - .github/workflows/moderate-bug-triage.yml
@@ -151,6 +153,9 @@ ignore:
   # `pnpm install` after a sync PR changes package.json.
   - pnpm-lock.yaml
 
+  # The instance's own time-boxed osv-scanner advisory ignores.
+  - osv-scanner.toml
+
   # The app itself: the generic CRUD client and Heroes example are a
   # starting point an instance owns from the moment it's instantiated, so a
   # sync never overwrites its code or static assets.
@@ -218,6 +223,10 @@ merge:
   - .github/CONTENTS.md
   - .github/renovate.json
   - .pre-commit-config.yaml
+  # Base's gitleaks config: the useDefault extension is base's, the
+  # [[allowlists]] entries are each instance's own (no include mechanism
+  # to split them), so a three-way merge, like .pre-commit-config.yaml.
+  - .gitleaks.toml
   - .mcp.json
   - .gitignore
   - scripts/README.md

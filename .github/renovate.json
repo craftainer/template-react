@@ -1,7 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "schedule": ["before 6am on monday"],
+  "pre-commit": {
+    "enabled": true
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  },
+  "osvVulnerabilityAlerts": true,
   "packageRules": [
     {
       "matchUpdateTypes": ["patch", "minor"],
@@ -19,6 +26,11 @@
       "matchUpdateTypes": ["minor"],
       "groupName": "python minor upgrade",
       "automerge": false
+    },
+    {
+      "description": "Pin container images to their digest. Scoped to the docker managers on purpose: a global pinDigests also hits the pre-commit manager, whose tag revs can't be converted to digests (the update fails). GitHub Actions are pinned by helpers:pinGitHubActionDigests instead.",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "pinDigests": true
     },
     {
       "description": "Renovate can't regenerate .devcontainer/devcontainer-lock.json, so features are bumped by hand together with it (see .devcontainer/README.md).",

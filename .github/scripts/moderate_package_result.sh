@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Packages a worker job's result -- a git patch plus outcome metadata,
-# never anything executed -- for the matching privileged "apply"
-# workflow to consume via a workflow_run artifact. See
+# never anything executed -- for the privileged "apply" job of the same
+# workflow to consume via a job-to-job artifact. See
 # ../workflows/README.md's "Issue moderation" section: keeping
 # push/PR/label-write capability out of this job (the one that runs
 # Claude against untrusted issue text) is what closes CodeQL's

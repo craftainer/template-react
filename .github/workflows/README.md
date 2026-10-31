@@ -29,8 +29,7 @@
   Playwright image on the `arm64` runner, uploading the HTML report on
   failure (see `docs/adrs/0005-storybook-visual-regression-and-axe.md`).
 - `moderate-bug-triage.yml` / `moderate-bug-fix.yml` /
-  `moderate-bug-fix-apply.yml` / `moderate-feature-triage.yml` /
-  `moderate-feature-build.yml` / `moderate-feature-build-apply.yml` /
+  `moderate-feature-triage.yml` / `moderate-feature-build.yml` /
   `moderate-cleanup.yml` / `moderate-setup.yml` — see "Issue moderation"
   below.
 - `template-sync.yml` — runs in an *instance* of this template, not
@@ -86,53 +85,107 @@ verified end-to-end on arm64 hardware on 2026-09-06.
 ## Issue moderation
 
 `moderate-bug-triage.yml`, `moderate-bug-fix.yml`,
-`moderate-bug-fix-apply.yml`, `moderate-feature-triage.yml`,
-`moderate-feature-build.yml`, `moderate-feature-build-apply.yml`, and
+`moderate-feature-triage.yml`, `moderate-feature-build.yml`, and
 `moderate-cleanup.yml` run the `claude` CLI as an issue moderator: on a
 bug report, it verifies the report is actionable, reproduces it as a
-failing test on a branch, and asks the reporter to confirm before a
-second stage fixes it and opens a PR; on a feature request, it verifies
-the request fits the project, drafts a plan on a branch, and asks for
-confirmation before a second stage implements it and opens a PR.
+failing test on a branch, and asks a maintainer to confirm (by adding
+the `bug:confirm` label) before a second stage fixes it and opens a PR;
+on a feature request, it verifies the request fits the project, drafts a
+plan on a branch, and asks a maintainer to confirm (the
+`enhancement:confirm` label) before a second stage implements it and
+opens a PR.
 
-**Fix/build is itself split in two, to keep Claude out of any job that
-can push/PR/relabel.** `moderate-bug-fix.yml` /
-`moderate-feature-build.yml` (`issue_comment`-triggered, `permissions:
-contents: read` only) check out the confirmed branch and run Claude
-against the issue's untrusted title/body/comments, but never hold
-write-scoped credentials -- Claude commits locally (or, if it can't
-converge, writes an explanation to `.moderation-outcome.md`) and the job
-packages that as a `moderation-result` artifact (`../scripts/
-moderate_package_result.sh`: a `git format-patch` diff plus a small JSON
-outcome record — data, nothing executable). `moderate-bug-fix-apply.yml`
-/ `moderate-feature-build-apply.yml` (`workflow_run`-triggered on that
-workflow's completion, `permissions: contents: write, issues: write,
-pull-requests: write`) download the artifact and do the actual
-`git am`/push/`gh pr create`/relabel (`../scripts/
-moderate_apply_result.sh`) — the only things this privileged half ever
-executes are `git`/`gh` calls with literal, fixed arguments (plus the
-patch's file contents, applied as a diff, never as a command). This is
+**Fix/build is one workflow with two jobs, to keep Claude out of any job
+that can push/PR/relabel.** `moderate-bug-fix.yml` /
+`moderate-feature-build.yml` start on `issues: [labeled]` for the
+`bug:confirm` / `enhancement:confirm` label. Only a user with triage
+permission or above can add a label, so every run is initiated by a
+privileged user; neither `issue_comment` (anyone who can see the issue
+can comment) nor `workflow_run` is a trigger, which is what zizmor's
+`dangerous-triggers` audit asks for. The `fix`/`build` job
+(`permissions: contents: read` only) checks out the pinned branch tip
+and runs Claude against the issue's untrusted title/body/comments, but
+never holds write-scoped credentials. Claude commits locally (or, if it
+can't converge, writes an explanation to `.moderation-outcome.md`) and
+the job packages that as a `moderation-result` artifact
+(`../scripts/moderate_package_result.sh`: a `git format-patch` diff plus a
+small JSON outcome record — data, nothing executable). The `apply` job
+(`needs:` the first one, its own job-level `permissions: contents:
+write, issues: write, pull-requests: write`) runs from the default
+branch's checkout, downloads that artifact and does the actual `git
+am`/push/`gh pr create`/relabel (`../scripts/moderate_apply_result.sh`) —
+the only things it executes are `git`/`gh` calls with literal, fixed
+arguments (plus the patch's file contents, applied as a diff, never as a
+command). It never runs Claude or code from the issue branch. This is
 what a job combining Claude-on-untrusted-text with push/PR/label-write
 credentials would otherwise trip on CodeQL's
-`actions/untrusted-checkout`/`actions/untrusted-checkout-toctou`
-(GitHub's own "pwn requests" pattern, adapted here since there's no
-`pull_request`/`workflow_run` pair to lean on directly — the untrusted
-input is issue text, not a fork's commits). The apply workflow
-re-checks the issue's `*:*-ready` label before acting (a no-op, not an
-error, if it's already gone) since it isn't concurrency-grouped with the
-worker the way every other moderation workflow is -- `workflow_run`
-can't see the issue number to key a group on before the artifact is
-downloaded. The triggering worker run also concludes `success` when its
-jobs were all skipped (unrelated comment, missing label, no API key), in
-which case no `moderation-result` artifact exists;
-`actions/download-artifact` has no "if not found" mode, so the apply
-workflows first look the artifact up by name through the run's artifacts API
-(`../scripts/find_moderation_result.sh`; the run's other artifacts are not
-listed, so more than 30 cannot hide it) and skip the download/apply steps
-when it is absent. An expired artifact (the worker keeps it one day) fails
-the job: a result was produced and lost, so a green apply job would hide
-that nothing was applied. The download itself stays strict, so real
-failures still fail the job.
+`actions/untrusted-checkout`/`actions/untrusted-checkout-toctou`. The
+`apply` job runs even when the first job failed (it uploads in an
+`if: always()` step, so Claude's failure still becomes a "failed"
+outcome comment) and is skipped when the first job was (no API key,
+untrusted issue, stage label missing). If the artifact is missing
+(the first job died before packaging), `apply` comments on the issue,
+adds `needs-human` and fails; the message reads "no result artifact
+(missing or download error)" and names the download step's outcome.
+
+**The label is consumed at the start, and every apply step is
+re-runnable.** The `gate` job (`issues: write` only) removes the confirm
+label as the run starts, so a failed or skipped run never leaves it stuck
+(`labeled` fires only when a label is added) and a maintainer retries by
+adding it again. Re-adding it while a run is in flight queues the next run
+under the concurrency group. `apply` is idempotent, so that retry is safe
+after a partial first run:
+
+- The branch (`<bug|feature>/<n>-<repro|plan>`) is bot-owned: triage's
+  Claude run creates it and only `apply` writes to it afterwards. A
+  retry's `git am` makes new SHAs, so `apply` pushes with
+  `--force-with-lease=<branch>:<tip read from the remote>`: it fails if
+  anyone pushed in between, and it refuses to overwrite a tip that is not
+  the base SHA or a descendant of it (foreign work).
+- An open PR for the branch (`gh pr list --head`) is reused, never
+  duplicated.
+- The stage label swaps in one `gh issue edit` (`*-ready` to
+  `fixed`/`built`, also removing any `needs-human` an earlier failed
+  attempt left) after the PR exists, inside the same failure handling. On any failure the stage stays
+  `*-ready`; the issue gets `needs-human` first, then a best-effort
+  comment (with the run link only when `GITHUB_SERVER_URL`,
+  `GITHUB_REPOSITORY` and `GITHUB_RUN_ID` are all set), and the job fails.
+- A non-built outcome (Claude could not converge) posts its note and adds
+  `needs-human` but keeps `*-ready` on purpose: a maintainer's retry
+  re-runs the build, which spends API budget again. If the label is
+  re-added repeatedly during a run, each queued run can post its own
+  not-built comment (the ready label is still present, so the re-check
+  below does not skip them).
+- The foreign-work check fetches with `--depth=100`. A remote tip more
+  than 100 commits ahead of the base SHA is misjudged as foreign and
+  fails with the generic "Applying the automated result failed" message.
+
+**The confirm label means "run attempted".** `gate` consumes it even when
+the run is then skipped (missing `ANTHROPIC_API_KEY`, untrusted author
+without `claude:ok`, or no `*-ready` label), with no comment on the issue.
+To see why nothing happened, open the run's `gate` job log and the skipped
+`fix`/`build` job's condition.
+
+The workflow shares the
+per-issue concurrency group with the other moderation workflows when the
+confirm label is what triggered it; any other label event gets a
+throwaway group so it can't displace a queued confirm run. Known and
+accepted: adding, removing and re-adding the confirm label in quick
+succession can drop a queued run (GitHub keeps one pending run per group).
+The apply script also re-checks the `*:*-ready` label before acting (a
+no-op, not an error, if it's already gone).
+
+**Confirmation is a maintainer's label, not the reporter's `/confirm`
+comment.** Triage comments a link to the repro/plan and asks a
+maintainer to add the confirm label once the reporter agrees. This
+replaces the earlier `/confirm` comment from the issue author: a comment
+trigger cannot tell who may start a spend-bearing run, a label can. The
+maintainer who adds `bug:confirm` / `enhancement:confirm` is the
+confirmer and should review the repro or plan branch first: the
+`bug/<n>-repro` / `feature/<n>-plan` branch linked in triage's comment
+on the issue (also under the repository's branches list). The run is
+pinned to that branch's tip when the label is added, so it builds on
+exactly what the maintainer saw only if they looked at the current tip.
 
 Activating this in a given repo/fork takes two one-time steps, neither
 of which is itself a workflow: provisioning a dedicated Anthropic
@@ -145,11 +198,11 @@ Two independent label sequences track state, applied by `gh issue edit`
 inside each stage's Claude prompt (`../scripts/prompts/`) or by a
 deterministic workflow step:
 
-- Bug: `bug` → (`bug:needs-info` | `bug:repro-ready`) → `bug:confirmed`
-  → `bug:fixed`.
+- Bug: `bug` → (`bug:needs-info` | `bug:repro-ready`) → `bug:fixed`; a maintainer adds `bug:confirm` to start the fix (the
+  label is consumed when the run starts).
 - Feature: `enhancement` → (`enhancement:not-a-fit` |
-  `enhancement:plan-ready`) → `enhancement:confirmed` →
-  `enhancement:built`.
+  `enhancement:plan-ready`) → `enhancement:built`; a maintainer adds
+  `enhancement:confirm` to start the build (consumed when the run starts).
 
 Either sequence can end at `needs-human` instead, if Claude can't
 reproduce the bug / can't get the fix passing checks / can't complete
@@ -174,7 +227,8 @@ such gate (see its own header comment) and always runs.
 **Trust gate.** The triage and fix/build jobs also skip unless
 `github.event.issue.author_association` is `OWNER`, `MEMBER`, or
 `COLLABORATOR`, or the issue carries a `claude:ok` label (a maintainer
-opt-in for an external reporter) — the issue body and comments are
+opt-in for an external reporter). Fix/build is additionally started only
+by a triage+ user's confirm label, as above — the issue body and comments are
 untrusted text fed straight into a Claude prompt, and this pipeline
 pushes branches, spends API budget, and opens PRs from repo secrets.
 
@@ -206,7 +260,7 @@ file tools and `prek run`. An instance that needs Claude to run more
 (e.g. a targeted repro) sets the optional `MODERATION_EXTRA_TOOLS`
 repository variable to extra comma-separated Claude Code `--allowedTools`
 entries, e.g. `Bash(uv run pytest *)`; it's appended to each read-only
-job's tool list and never applies to the `-apply` workflows, which don't
+job's tool list and never applies to the `apply` jobs, which don't
 run Claude.
 
 A single `moderate-issue-<number>` `concurrency:` group, shared across
@@ -251,9 +305,15 @@ workflow works with no registry configured at all. When it is set:
 - `OCI_IMAGE_NAME` (variable, optional) — the image path within the
   registry, e.g. `myorg/template-fastapi`. Defaults to the repository's
   own `owner/repo` (lowercased) if unset.
-- `OCI_REGISTRY_USERNAME` / `OCI_REGISTRY_PASSWORD` (secrets,
-  required whenever `OCI_REGISTRY` is set) — credentials for
-  `docker/login-action`.
+- `OCI_REGISTRY_USERNAME` / `OCI_REGISTRY_PASSWORD` (secrets) —
+  credentials for `docker/login-action`. Required whenever
+  `OCI_REGISTRY` is set, except to push to the repository's own GHCR
+  packages (`ghcr.io/<owner>/<repo>...`): the `build` and `release`
+  jobs' `GITHUB_TOKEN` has `packages: write`, so the instance's
+  `publish` and `finalize` can log in with `GITHUB_ACTOR`/`GITHUB_TOKEN` instead (see
+  `../../docs/TEMPLATE.md`'s "Release: a Makefile contract"). The
+  contract asks an instance's `publish` to prefer the secrets when they
+  are set; they remain the way to reach any other registry.
 
 ## Image labels
 
@@ -288,7 +348,10 @@ cleanly when the registry isn't configured.
 - `OCI_REGISTRY` (variable) — registry host (e.g. `ghcr.io`).
 - `OCI_IMAGE_NAME` (variable, optional) — image path within the registry.
 - `OCI_REGISTRY_USERNAME` / `OCI_REGISTRY_PASSWORD` (secrets) —
-  registry credentials.
+  registry credentials. Optional for the repository's own GHCR
+  packages, which the `build` and `release` jobs' `GITHUB_TOKEN`
+  (`packages: write`, actor `GITHUB_ACTOR`) can push to from `publish`
+  and `finalize`.
 - `CI_RUNNER_AMD64` / `CI_RUNNER_ARM64` (variables, optional) — runner
   labels for each arch leg, defaulting to `ubuntu-24.04` /
   `ubuntu-24.04-arm`.
@@ -313,9 +376,13 @@ cleanly when the registry isn't configured.
 
 ## Do
 
-- Give `release.yml` and `template-sync.yml` `contents: write` and
-  nothing broader (`template-sync.yml` also needs `pull-requests:
-  write`, for nothing else); leave `checks.yml` at `contents: read`.
+- Give `release.yml` and `template-sync.yml` `contents: write`, with
+  exactly two additions and nothing else broader: `template-sync.yml`
+  also needs `pull-requests: write`, and `release.yml`'s `build` and
+  `release` jobs also have `packages: write`, so `make publish` and
+  `make finalize` can push to the repository's own GHCR packages with
+  `GITHUB_TOKEN` (no other job has it; the token is in `build`'s job
+  env, so every per-arch target can use it). Leave `checks.yml` at `contents: read`.
 - Keep `id-token: write` on `release.yml`'s `publish-packages` job only
   (PyPI, npm and crates.io trusted publishing via GitHub OIDC). GitHub
   permissions are per job, not per step, and that job's `if:` on the
