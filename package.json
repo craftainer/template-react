@@ -6,6 +6,9 @@
   "packageManager": "pnpm@12.3.4",
   "scripts": {
     "dev": "vite",
+    "dev:bff": "node --watch bff/src/main.ts",
+    "start:bff": "node bff/src/main.ts",
+    "typecheck:bff": "tsc -p bff",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "oxlint",
@@ -17,6 +20,7 @@
     "storybook:build": "storybook build"
   },
   "dependencies": {
+    "@craftainer/bff": "^0.1.0",
     "@craftainer/crud-sdk": "0.7.0",
     "@craftainer/crud-views": "0.5.1",
     "@emotion/react": "11.14.0",
