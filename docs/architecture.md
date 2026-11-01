@@ -49,6 +49,41 @@ flowchart LR
 Forwarded to the host: 5173 (Vite), 8787 (dev BFF, the back-channel logout
 target) and 8081 (the production image, below).
 
+## End-to-end lane
+
+`tests/e2e/` runs without VS Code, so nothing forwards ports and
+`host.docker.internal` is not used. `tests/e2e/lane.sh` starts only
+`template-fastapi`'s own compose services (Postgres, S3, MQTT, Valkey,
+Keycloak and the API, no Selenium or Umami) in one Compose project, and
+`tests/e2e/run.sh` runs the Playwright image in **Keycloak's network
+namespace**, so `localhost` is Keycloak for the browser, the BFFs and the
+tokens' `iss`.
+
+```mermaid
+flowchart LR
+  subgraph ns["Keycloak's network namespace (the Playwright container joins it)"]
+    pw["Playwright + Chromium"]
+    main["BFF main :8081<br/>serves dist/"]
+    short["BFF short :5173<br/>6 s idle, 15 s absolute"]
+    kc["Keycloak :8080"]
+  end
+  subgraph proj["template-fastapi compose project (bffe2e)"]
+    api["API :8000 (myapp)"]
+    valkey[("redis (Valkey) :6379")]
+  end
+  pw --> main
+  pw --> short
+  pw -- "login form, admin API" --> kc
+  main & short -- "sessions (by IP)" --> valkey
+  main & short -- "/api/crud (by IP)" --> api
+  kc -- "back-channel logout<br/>localhost:8081" --> main
+```
+
+The two BFFs are this repo's `bff/` on the two origins the realm's `bff` client
+allows (8081 and 5173). The suite sets the `bff` client's back-channel logout URL
+to the first for the run and restores it; see
+[`tests/e2e/README.md`](../tests/e2e/README.md).
+
 ## Production image
 
 ```mermaid

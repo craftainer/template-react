@@ -1,42 +1,31 @@
-// One journey through the manifest-driven admin, signed in as the dev realm's
-// maintainer (password == username) against a real template-fastapi: sign in
+// One journey through the manifest-driven admin (ADR 0006), signed in as the
+// dev realm's maintainer (password == username) through the BFF: sign in
 // through Keycloak, create, edit with a conditional save, hit a 412 after an
-// out-of-band change, archive and see the record in the trash.
+// out-of-band change, archive and see the record in the trash. The browser
+// only ever talks to the BFF; the out-of-band changes go to the backend
+// directly with a bearer token.
 import {
   expect,
   test,
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
+import {
+  HEROES_DIRECT,
+  MAIN,
+  backendToken,
+  laneEnv,
+  submitKeycloakForm,
+} from "./lane";
 
-const authority =
-  process.env.E2E_OIDC_AUTHORITY ??
-  "http://keycloak:8080/realms/template-fastapi";
-const HEROES = "/api/crud/v1/heroes/v2/json";
+const bearer = (request: APIRequestContext, username: string) =>
+  backendToken(request, username);
 
 async function signIn(page: Page, username: string) {
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.goto(MAIN.origin, { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "Sign in" }).click();
-  await page.locator("#username").fill(username);
-  await page.locator("#password").fill(username);
-  await page.locator("#kc-login").click();
-  await expect(page.getByText(username, { exact: true })).toBeVisible();
-}
-
-async function bearer(request: APIRequestContext, username: string) {
-  const response = await request.post(
-    `${authority}/protocol/openid-connect/token`,
-    {
-      form: {
-        grant_type: "password",
-        client_id: "api",
-        username,
-        password: username,
-      },
-    },
-  );
-  expect(response.ok()).toBeTruthy();
-  return `Bearer ${(await response.json()).access_token as string}`;
+  await submitKeycloakForm(page, username);
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 }
 
 test.setTimeout(180_000);
@@ -83,12 +72,13 @@ test("the admin creates, edits, conflicts and archives a record", async ({
 
   // Someone else changes the record after the list loaded: the next inline
   // edit is refused and sends nothing.
+  const heroes = `${laneEnv("E2E_API_URL")}${HEROES_DIRECT}`;
   const found = await request.get(
-    `${HEROES}?name=${encodeURIComponent(inlineName)}`,
+    `${heroes}?name=${encodeURIComponent(inlineName)}`,
     { headers: { Authorization: await bearer(request, "maintainer") } },
   );
-  const rowId = ((await found.json()) as { id: number }[])[0].id;
-  const elsewhere = await request.patch(`${HEROES}?id=${rowId}`, {
+  const rowId = ((await found.json()) as { id: number }[])[0]!.id;
+  const elsewhere = await request.patch(`${heroes}?id=${rowId}`, {
     headers: { Authorization: await bearer(request, "maintainer") },
     data: { power_level: 7 },
   });
@@ -130,7 +120,7 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   await expect(field).toHaveValue(`${name} edited`);
 
   // Change the record behind the UI's back: the next save must be refused.
-  const patched = await request.patch(`${HEROES}?id=${id}`, {
+  const patched = await request.patch(`${heroes}?id=${id}`, {
     headers: { Authorization: await bearer(request, "maintainer") },
     data: { power_level: 99 },
   });

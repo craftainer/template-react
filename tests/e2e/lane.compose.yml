@@ -1,0 +1,29 @@
+# Compose override for the e2e lane, applied on top of template-fastapi's own
+# .devcontainer/compose.yml + compose.instance.yml (tests/e2e/lane.sh passes
+# all three). It defines no service of its own: it only makes template-fastapi's
+# `myapp` (its devcontainer image, normally `sleep infinity`) run the API, so the
+# lane needs no VS Code, no devcontainer CLI and no Docker-in-Docker.
+services:
+  myapp:
+    # What template-fastapi's post-create script and launch config do by hand:
+    # install the locked dependencies, then serve (MODE=dev from its compose
+    # file; migrations run at startup).
+    command:
+      - bash
+      - -c
+      - uv sync --frozen --extra dev && exec uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      # Its env_file points the API at the Umami stack service, which the lane
+      # does not start.
+      ANALYTICS_BACKEND: none
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live', timeout=3)
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      # `uv sync` downloads the dependencies on a cold cache.
+      start_period: 180s
