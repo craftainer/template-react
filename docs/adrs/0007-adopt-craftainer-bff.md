@@ -78,3 +78,27 @@ the SPA holds no tokens:
 - Moving between hosts or origins changes `PUBLIC_ORIGIN` and the realm's
   redirect URIs together. Image runs on a developer machine use host port 8081
   (`8081:8080`), because 8080 is Keycloak.
+
+## Amendment: the CSP style nonce (BF5c)
+
+The library's fixed `style-src 'self'` blocked Emotion's runtime `<style>`
+tags, so the SPA rendered unstyled behind the BFF. From `@craftainer/bff`
+0.2.0 the library serves the SPA's HTML with a per-request nonce, and the SPA
+passes it on:
+
+1. `vite.config.ts` sets `html.cspNonce: "__CSP_NONCE__"`. Vite adds that
+   value to its own `<script>` and `<link>` tags and emits
+   `<meta property="csp-nonce" nonce="__CSP_NONCE__">`.
+2. The BFF replaces every `__CSP_NONCE__` in `index.html` per request and
+   sends `style-src-elem 'self' 'nonce-<n>'; style-src-attr 'unsafe-inline'`
+   (`script-src 'self'` is unchanged), with the HTML `no-store`. Other
+   responses keep the old CSP. The library's ADR 0005 has the reasoning.
+3. `src/theme/emotionCache.ts` reads the nonce from the meta tag's `.nonce`
+   property (browsers hide the attribute from `getAttribute`) and builds the
+   Emotion cache with `{ key: "mui", nonce, prepend: true }`, per MUI's CSP
+   guide. `ThemeProvider` wraps the app in `CacheProvider`.
+
+`style-src-attr 'unsafe-inline'` stays because MUI and the data grid set
+`style=""` attributes, which a nonce cannot cover. Under `vite dev` the
+placeholder stays literal and no CSP is enforced; with no meta tag (unit
+tests, Storybook) the cache simply has no nonce.

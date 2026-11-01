@@ -22,6 +22,7 @@
   "dependencies": {
     "@craftainer/crud-sdk": "0.7.0",
     "@craftainer/crud-views": "0.5.1",
+    "@emotion/cache": "11.14.0",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@fontsource-variable/fraunces": "5.3.0",

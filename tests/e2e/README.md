@@ -108,6 +108,10 @@ as a failure the moment it starts passing, so the marker cannot rot.
   the grid's conditional save then fails with "Could not read this record's
   version" (probably its forced `Cache-Control: no-store` on `/api/*`, which
   crud-sdk's cache will not store). Both belong in `lib-bff-ts`.
+  The fixes are `@craftainer/bff` 0.2.0 (CSP nonce, opt-in `upstream`
+  Cache-Control) and `@craftainer/crud-sdk` 0.8.0; the CSP half is wired
+  in the SPA (BF5c phase A), and the marker goes once both pins are bumped
+  and this spec has passed against them.
 
 ## Do
 

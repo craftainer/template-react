@@ -13,6 +13,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // Vite puts this value on its <script>/<link> tags and emits a
+    // <meta property="csp-nonce"> with it. @craftainer/bff replaces every
+    // `__CSP_NONCE__` in index.html per request; src/theme/emotionCache.ts
+    // reads the meta tag for Emotion. See docs/adrs/0007-adopt-craftainer-bff.md.
+    html: { cspNonce: "__CSP_NONCE__" },
     // Static assets live under src/ alongside the rest of the app rather
     // than at the project root (Vite's default `public/`).
     publicDir: "src/public",
