@@ -1,0 +1,17 @@
+# Stack service: Valkey, the BFF's session store, reachable only from other
+# containers on the compose-generated default network (see ../README.md).
+services:
+  valkey:
+    image: valkey/valkey:9.1.2-alpine
+    restart: unless-stopped
+    command: valkey-server --appendonly yes
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  valkey-data:

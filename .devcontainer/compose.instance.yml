@@ -1,6 +1,10 @@
 # template-react's instance-owned additions to template-base's compose.yml
 # (whose dev service is named `myapp`). Merged over it by
 # devcontainer.json's dockerComposeFile list.
+include:
+  # The BFF's session store; see stack/README.md.
+  - stack/valkey/compose.yml
+
 services:
   myapp:
     # Not a ports:/networks: block, so .devcontainer/README.md's "Don't"
@@ -14,3 +18,12 @@ services:
     # to the backend".
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # The dev BFF's session store. Plaintext is the documented dev-only
+    # opt-out (the BFF refuses plaintext non-loopback URLs otherwise); see
+    # stack/valkey/README.md.
+    environment:
+      SESSION_STORE_URL: redis://valkey:6379
+      SESSION_STORE_ALLOW_PLAINTEXT: "true"
+    depends_on:
+      valkey:
+        condition: service_healthy

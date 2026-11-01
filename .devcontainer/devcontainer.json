@@ -13,11 +13,19 @@
       "dockerDashComposeVersion": "v2"
     }
   },
-  "forwardPorts": [5173],
+  "forwardPorts": [5173, 8081, 8787],
   "portsAttributes": {
     "5173": {
       "label": "Vite dev server",
       "onAutoForward": "openPreview"
+    },
+    "8081": {
+      "label": "Production image (BFF)",
+      "onAutoForward": "silent"
+    },
+    "8787": {
+      "label": "Dev BFF (Keycloak back-channel logout target)",
+      "onAutoForward": "silent"
     }
   },
   "mounts": [

@@ -7,14 +7,14 @@
 # the SPA bundle embeds neither. No COVERAGE_REPORT: no coverage asset is
 # released.
 
-# The runner is nginx-unprivileged on 8080 serving the SPA. Its env defaults
-# point API_PROXY_TARGET at host.docker.internal, which a plain `docker run`
-# on Linux can't resolve, and nginx refuses to start on an unresolvable
-# upstream -- so the smoke run points it at loopback instead (the smoke test
-# never calls /api).
+# The runner is Node (unprivileged) running bff/ on 8080. /health/live is 200
+# without Valkey or the IdP (both are connected lazily), but loadConfig still
+# needs the four required env vars, so the smoke run sets dummy values (no
+# whitespace: the script splits this on spaces). NODE_ENV=production in the
+# image refuses a plaintext non-loopback session-store URL, hence rediss://.
 IMAGE_SMOKE_PORT := 8080
-IMAGE_SMOKE_PATH := /
-IMAGE_SMOKE_RUN_ARGS := -e API_PROXY_TARGET=http://127.0.0.1:8000
+IMAGE_SMOKE_PATH := /health/live
+IMAGE_SMOKE_RUN_ARGS := -e PUBLIC_ORIGIN=https://app.example.test -e OIDC_ISSUER=https://idp.example.test/realms/smoke -e OIDC_CLIENT_SECRET=smoke-dummy-secret -e SESSION_STORE_URL=rediss://valkey.invalid:6379
 
 # The unit tests that were release-check's whole recipe before the image
 # smoke test joined it as a prerequisite.

@@ -107,8 +107,8 @@ replace:
   - scripts/skopeo.sh
   - scripts/test-image-scripts.sh
 
-  # template-react's own layer on top of docker's: the runtime image (an
-  # nginx-served SPA) and its assets, the dev-service compose additions, the
+  # template-react's own layer on top of docker's: the runtime image (Node
+  # BFF serving the SPA), the dev-service compose additions, the
   # hook scripts, and the Vite/TypeScript/lint/format plumbing -- an
   # instance changing these is changing the build tooling, not its app.
   # Listed one by one where docker's hook directories are "ignore" for plain
@@ -116,7 +116,6 @@ replace:
   # template-sync-manifest.local.yml.
   - Dockerfile
   - .devcontainer/compose.instance.yml
-  - scripts/docker/
   - scripts/develop.d/10-corepack.sh
   - scripts/post-create.d/10-pnpm-install.sh
   - scripts/check-design-tokens.sh
@@ -155,6 +154,13 @@ ignore:
   # starting point an instance owns from the moment it's instantiated, so a
   # sync never overwrites its code or static assets.
   - src/
+
+  # The thin BFF on @craftainer/bff (P-D4): each instance owns its
+  # composition (routes, upstreams, config), so a sync never touches it.
+  - bff/
+
+  # The devcontainer stack (the BFF's Valkey): instance-owned composition.
+  - .devcontainer/stack/
 
   # Story fakes for this app's API and auth (preview.tsx imports its
   # exports), and the baselines rendered from this app's stories.

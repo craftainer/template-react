@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.28
-# Runtime image (builder → runner), the repo's top-level Dockerfile; the
-# devcontainer image is `.devcontainer/Dockerfile`'s `develop` stage.
+# Runtime image (builder + bff-deploy -> runner), the repo's top-level
+# Dockerfile; the devcontainer image is `.devcontainer/Dockerfile`'s `develop`
+# stage.
 
 # NODE_VERSION/DEBIAN_VERSION must match .devcontainer/Dockerfile's, so
 # the bundle is built with the same Node the devcontainer tests against --
@@ -9,14 +10,11 @@
 ARG NODE_VERSION=24.22.1
 ARG DEBIAN_VERSION=trixie
 
-# renovate: datasource=docker depName=nginxinc/nginx-unprivileged
-ARG NGINX_VERSION=1.30.6-alpine
-
 ARG SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ARG SSL_CERT_DIR=/etc/ssl/certs
 
 ########################################
-# builder — installs deps with pnpm (the pinned version comes from
+# builder -- installs deps with pnpm (the pinned version comes from
 # package.json's own `packageManager` field, which Corepack reads) and
 # builds the static SPA bundle.
 ########################################
@@ -28,40 +26,50 @@ ENV SSL_CERT_FILE=${SSL_CERT_FILE} \
 
 RUN corepack enable
 WORKDIR /workspace
+# bff/package.json: bff/ is a workspace member, so the install needs it.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY bff/package.json bff/package.json
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
 ########################################
-# runner — nginx-unprivileged serving the built SPA and proxying /api to
-# the real backend (see docs/adrs/0002-same-origin-api-proxy.md). Its own
-# docker-entrypoint.d/20-envsubst-on-templates.sh already renders
-# scripts/docker/nginx.conf.template -> /etc/nginx/conf.d/default.conf from
-# real container env vars on every start; docker-entrypoint.d/ here adds
-# one more such script for this app's own /config.js (its client-side
-# runtime config), same mechanism, one level up the stack.
+# bff-deploy -- the BFF's production dependency tree only, as a standalone
+# directory (`pnpm deploy`), so the runner needs neither pnpm nor the
+# workspace. bff/src is Node-typed TypeScript run directly (type stripping),
+# so there is nothing to compile.
 ########################################
-FROM nginxinc/nginx-unprivileged:${NGINX_VERSION} AS runner
+FROM node:${NODE_VERSION}-${DEBIAN_VERSION}-slim AS bff-deploy
+ARG SSL_CERT_FILE
+ARG SSL_CERT_DIR
+ENV SSL_CERT_FILE=${SSL_CERT_FILE} \
+    SSL_CERT_DIR=${SSL_CERT_DIR}
 
-# Defaults match the backend's own devcontainer (see docs/adrs/0001-...md
-# and docs/adrs/0002-...md) -- correct for a local smoke-test of this
-# image, not a real deployment, which must override all three.
-ENV OIDC_AUTHORITY=http://localhost:8080/realms/template-fastapi \
-    OIDC_CLIENT_ID=api \
-    API_PROXY_TARGET=http://host.docker.internal:8000
+RUN corepack enable
+WORKDIR /workspace
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY bff/package.json bff/package.json
+COPY bff/src bff/src
+RUN pnpm --filter ./bff deploy --prod /out
 
-COPY scripts/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
-COPY scripts/docker/docker-entrypoint.d/20-envsubst-app-config.sh /docker-entrypoint.d/20-envsubst-app-config.sh
-# The base image already switches to its unprivileged `nginx` user
-# (uid/gid 101) -- root only for this one COPY+chown, since --chown alone
-# reaches the *copied files* but not the pre-existing
-# /usr/share/nginx/html directory entry itself (still root-owned there),
-# and this stage's own docker-entrypoint.d script needs write access on
-# that directory to create config.js at container start.
-USER root
-COPY --from=builder --chown=nginx:nginx /workspace/dist /usr/share/nginx/html
-RUN chown nginx:nginx /usr/share/nginx/html
-USER nginx
+########################################
+# runner -- Node, unprivileged (`node`, uid 1000), digest-pinned. Runs the
+# BFF on 8080: it serves the built SPA (BFF_STATIC_DIR), the /bff/* auth
+# routes and the reverse proxy to the API upstreams. Renovate updates the
+# tag and digest together; keep the tag equal to
+# NODE_VERSION-DEBIAN_VERSION-slim (the digest is the multi-arch index's).
+########################################
+# renovate: datasource=docker depName=node
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS runner
 
+ENV NODE_ENV=production \
+    BFF_STATIC_DIR=/app/dist
+WORKDIR /app
+COPY --from=bff-deploy --chown=root:root /out /app
+COPY --from=builder --chown=root:root /workspace/dist /app/dist
+USER node
+
+# The required runtime env (PUBLIC_ORIGIN, OIDC_ISSUER, OIDC_CLIENT_SECRET,
+# SESSION_STORE_URL) has no default; the BFF refuses to start without it.
 EXPOSE 8080
+CMD ["node", "src/main.ts"]
