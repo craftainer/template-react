@@ -132,9 +132,6 @@ settings:
 importers:
   .:
     dependencies:
-      "@craftainer/bff":
-        specifier: ^0.1.0
-        version: 0.1.0
       "@craftainer/crud-sdk":
         specifier: 0.7.0
         version: 0.7.0(@tanstack/query-core@5.104.5)
@@ -232,6 +229,12 @@ importers:
       vitest:
         specifier: 5.0.0
         version: 5.0.0(@types/node@24.13.3)(jsdom@30.0.1)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2))
+
+  bff:
+    dependencies:
+      "@craftainer/bff":
+        specifier: 0.1.0
+        version: 0.1.0
 
 packages:
   "@adobe/css-tools@4.5.0":
