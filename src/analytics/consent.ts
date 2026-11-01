@@ -5,7 +5,7 @@
 // BFF still records unless the choice is a decline) and `null` while unknown
 // or after any failure. Callers treat `null` like `false` -- nothing is
 // retried and nothing else is sent.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CSRF_HEADER, CSRF_VALUE } from "../auth/bff";
 
 export const CONSENT_PATH = "/bff/consent";
@@ -65,21 +65,32 @@ export async function saveConsent(
  */
 export function useConsent(fetchImpl: Fetch = defaultFetch) {
   const [granted, setGranted] = useState<boolean | null>(null);
+  // Set once the visitor chose (or unmounted): a slower mount-time GET must
+  // not overwrite what they just stored.
+  const settled = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    settled.current = false;
     void fetchConsent(fetchImpl).then((value) => {
-      if (!cancelled) setGranted(value);
+      if (!settled.current) setGranted(value);
     });
     return () => {
-      cancelled = true;
+      settled.current = true;
     };
   }, [fetchImpl]);
 
   const choose = useCallback(
     async (analytics: boolean) => {
+      settled.current = true;
       const stored = await saveConsent(analytics, fetchImpl);
-      setGranted(stored);
+      if (mounted.current) setGranted(stored);
       return stored;
     },
     [fetchImpl],

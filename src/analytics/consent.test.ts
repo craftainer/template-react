@@ -78,4 +78,22 @@ describe("useConsent", () => {
     await act(() => result.current.choose(false));
     expect(result.current.granted).toBeNull();
   });
+
+  it("ignores a slow mount-time GET that resolves after a choice", async () => {
+    let releaseGet: (r: Response) => void = () => {};
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) =>
+      init?.method === "POST"
+        ? json({ analytics: true })
+        : new Promise<Response>((resolve) => {
+            releaseGet = resolve;
+          }),
+    ) as unknown as typeof fetch;
+    const { result } = renderHook(() => useConsent(fetchImpl));
+
+    await act(() => result.current.choose(true));
+    expect(result.current.granted).toBe(true);
+
+    await act(async () => releaseGet(json({ analytics: false })));
+    expect(result.current.granted).toBe(true);
+  });
 });

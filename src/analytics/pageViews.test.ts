@@ -53,4 +53,15 @@ describe("usePageViews", () => {
     act(() => adapter.write("resource=heroes", "push"));
     expect(send).toHaveBeenCalledTimes(2);
   });
+
+  it("does not re-send the same view when the host re-renders", () => {
+    const send = vi.fn();
+    const pathname = () => "/admin";
+    const { rerender } = renderHook(() =>
+      usePageViews(undefined, pathname, send),
+    );
+    rerender();
+    rerender();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
 });

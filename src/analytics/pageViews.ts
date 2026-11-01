@@ -3,7 +3,7 @@
 // "page" is the path plus that state's resource and view. Record ids, filters
 // and paging (which can carry personal data) never leave the browser: the
 // reported `url` is a bare path such as `/admin/heroes/trash`.
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { defaultUrlAdapter, type UrlAdapter } from "@craftainer/crud-views";
 import { track } from "./track";
 
@@ -30,11 +30,16 @@ export function viewPath(pathname: string, search: string): string {
  * Sends `page.view` once per distinct view: on mount and whenever the
  * adapter's state changes the reported path (filter or paging changes do not).
  */
+const windowPathname = () => window.location.pathname;
+
 export function usePageViews(
-  adapter: UrlAdapter = defaultUrlAdapter(),
-  pathname: () => string = () => window.location.pathname,
+  adapterArg?: UrlAdapter,
+  pathname: () => string = windowPathname,
   send: typeof track = track,
 ): void {
+  // Created once: a fresh default adapter per render would re-run the effect
+  // and re-send the same view.
+  const [adapter] = useState(() => adapterArg ?? defaultUrlAdapter());
   useEffect(() => {
     let last: string | null = null;
     const report = () => {
