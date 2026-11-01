@@ -2,6 +2,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { memoryUrlAdapter } from "@craftainer/crud-views";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useDefaultResource } from "../analytics/defaultResource";
+import { PAGE_VIEW_EVENT, usePageViews } from "../analytics/pageViews";
 import { AdminPage } from "./AdminPage";
 import { installAdminStub } from "./adminStub";
 
@@ -35,6 +37,39 @@ describe("AdminPage", () => {
       screen.getByRole("tab", { name: "Predictions" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Trash" })).toBeInTheDocument();
+  });
+
+  it("publishes its default resource once: no render loop, no duplicate page view", async () => {
+    installAdminStub();
+    const adapter = memoryUrlAdapter("view=trash");
+    const send = vi.fn();
+    const published: (string | undefined)[] = [];
+    function Probe() {
+      usePageViews(adapter, () => "/", send);
+      published.push(useDefaultResource());
+      return null;
+    }
+
+    render(
+      <>
+        <Probe />
+        <AdminPage urlAdapter={adapter} />
+      </>,
+    );
+    await screen.findByRole("heading", { name: "Heroes" });
+    await new Promise((resolve) => setTimeout(resolve, 200)); // time to loop
+
+    // The store changed twice at most (unset, then "heroes"); every other
+    // render of the probe saw the same value.
+    const changes = published.filter(
+      (v, i) => i === 0 || v !== published[i - 1],
+    );
+    expect(changes).toEqual([undefined, "heroes"]);
+    expect(published.length).toBeLessThan(10);
+    expect(send.mock.calls.map((c) => [c[0], c[2]])).toEqual([
+      [PAGE_VIEW_EVENT, "/"],
+      [PAGE_VIEW_EVENT, "/heroes/trash"],
+    ]);
   });
 
   it("says so when the caller can see no resource", async () => {
