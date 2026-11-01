@@ -65,6 +65,10 @@ FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e
 ENV NODE_ENV=production \
     BFF_STATIC_DIR=/app/dist
 WORKDIR /app
+# The BFF needs only the node binary. npm and corepack (bundled with the base
+# image, with their own vendored dependencies) are never run here, and Trivy
+# reports HIGH CVEs in npm's vendored brace-expansion and undici, so remove them.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 COPY --from=bff-deploy --chown=root:root /out /app
 COPY --from=builder --chown=root:root /workspace/dist /app/dist
 USER node
