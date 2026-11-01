@@ -114,6 +114,57 @@ out="$(sk -- copy a b)" || fail "skopeo.sh: no docker args should work"
 out="$(sk -i -- login)" || fail "skopeo.sh: docker args should work"
 [[ "$out" == *" -i img login" ]] || fail "skopeo.sh: unexpected command: $out"
 
+# Makefile publish/finalize credentials, with docker stubbed (it records its
+# argv and the stdin of any --password-stdin login): the OCI_REGISTRY_* secrets
+# win; with them unset ghcr.io falls back to GITHUB_ACTOR/GITHUB_TOKEN; any
+# other registry fails naming the missing secret; the password is only ever
+# on stdin, never in an argv.
+cr="$tmp/creds"
+mkdir -p "$cr/bin" "$cr/dist"
+ln -s "$root/scripts" "$cr/scripts"
+: >"$cr/dist/r-1.0.0-amd64.tar"
+cat >"$cr/bin/docker" <<'EOF_STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_LOG"
+case "$*" in *--password-stdin*) cat >"$STUB_STDIN" ;; esac
+EOF_STUB
+chmod +x "$cr/bin/docker"
+# creds_run TARGET REGISTRY [VAR=value ...]: prints make's output (call it in
+# $(...), then read the exit code with creds_rc); the stub's argv log is
+# left in $cr/log and its stdin in $cr/stdin.
+creds_run() {
+    local target="$1" registry="$2"
+    shift 2
+    printf 'sha256:abc' >"$cr/dist/r-1.0.0-amd64.digest" # finalize deletes it
+    rm -f "$cr/log" "$cr/stdin"
+    : >"$cr/log"
+    local rc=0
+    (cd "$cr" && env -u OCI_REGISTRY_USERNAME -u OCI_REGISTRY_PASSWORD -u GITHUB_ACTOR -u GITHUB_TOKEN \
+        PATH="$cr/bin:$PATH" STUB_LOG="$cr/log" STUB_STDIN="$cr/stdin" GITHUB_REPOSITORY=o/r \
+        RELEASE_VERSION=1.0.0 RELEASE_ARCH=amd64 ARCHES=amd64 "$@" \
+        make -s -f "$root/Makefile" "$target" OCI_REGISTRY="$registry" 2>&1) || rc=$?
+    printf '%s' "$rc" >"$cr/rc"
+}
+creds_rc() { cat "$cr/rc"; }
+for target in publish finalize; do
+    out="$(creds_run "$target" ghcr.io OCI_REGISTRY_USERNAME=u OCI_REGISTRY_PASSWORD=sekret GITHUB_ACTOR=a GITHUB_TOKEN=tok)"
+    expect_eq "$target secrets: exit" 0 "$(creds_rc)"
+    expect_eq "$target secrets: stdin" sekret "$(cat "$cr/stdin")"
+    [[ "$(cat "$cr/log")" == *" -u u "* ]] || fail "$target secrets: username not u: $(cat "$cr/log")"
+    out="$(creds_run "$target" ghcr.io GITHUB_ACTOR=a GITHUB_TOKEN=tok)"
+    expect_eq "$target ghcr fallback: exit" 0 "$(creds_rc)"
+    expect_eq "$target ghcr fallback: stdin" tok "$(cat "$cr/stdin")"
+    [[ "$(cat "$cr/log")" == *" -u a "* ]] || fail "$target ghcr fallback: username not a: $(cat "$cr/log")"
+    [[ "$(cat "$cr/log")" != *tok* && "$(cat "$cr/log")" != *sekret* ]] || fail "$target: password in argv: $(cat "$cr/log")"
+    out="$(creds_run "$target" quay.io GITHUB_ACTOR=a GITHUB_TOKEN=tok)"
+    [[ "$(creds_rc)" != 0 && "$out" == *OCI_REGISTRY_USERNAME* ]] || fail "$target non-ghcr without secrets should fail naming OCI_REGISTRY_USERNAME (rc=$(creds_rc)): $out"
+    [[ ! -s "$cr/log" ]] || fail "$target non-ghcr: docker ran: $(cat "$cr/log")"
+    out="$(creds_run "$target" ghcr.io)"
+    [[ "$(creds_rc)" != 0 && "$out" == *GITHUB_TOKEN* ]] || fail "$target ghcr without any credential should fail (rc=$(creds_rc)): $out"
+    out="$(creds_run "$target" ghcr.io OCI_REGISTRY_USERNAME=u GITHUB_ACTOR=a GITHUB_TOKEN=tok)"
+    [[ "$(creds_rc)" != 0 && "$out" == *OCI_REGISTRY_PASSWORD* ]] || fail "$target username without password should fail naming OCI_REGISTRY_PASSWORD (rc=$(creds_rc)): $out"
+done
+
 # image-dast.sh in a scratch copy of the repo (it works relative to its own
 # repo root), with docker and curl stubbed: skips without a tar, wires ZAP to
 # the app container's network and the rules file, and maps zap-baseline.py's

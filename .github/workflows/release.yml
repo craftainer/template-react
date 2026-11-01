@@ -89,7 +89,9 @@ jobs:
     # is the separate `publish-packages` job below. `packages: write` lets
     # `make publish` push to this repository's own GHCR packages
     # (ghcr.io/<owner>/<repo>...) with `GITHUB_TOKEN` (actor
-    # `GITHUB_ACTOR`) when the OCI_REGISTRY_* secrets are unset. The
+    # `GITHUB_ACTOR`, a default Actions env var) when the OCI_REGISTRY_*
+    # secrets are unset and OCI_REGISTRY is ghcr.io (the Makefile's
+    # REGISTRY_CREDS; any other registry needs the secrets). The
     # `release` job has it too, for `make finalize`'s manifest lists.
     permissions:
       contents: write

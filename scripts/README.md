@@ -32,7 +32,9 @@
   (passive) in its network namespace, with rule levels from the
   instance-owned `.zap/rules.tsv`; reports go to `dist/dast/`.
 - `test-image-scripts.sh` — the `image-scripts-test` hook: offline tests of
-  the Makefile's repo derivation and these scripts.
+  the Makefile's repo derivation, the `publish`/`finalize` registry
+  credentials (secrets, the ghcr.io `GITHUB_TOKEN` fallback, the non-ghcr
+  failure, no password in an argv; docker stubbed) and these scripts.
 - `image-smoke.sh` — `make image-smoke` (a `release-check` prerequisite):
   converts the arch's image in the release OCI tar from `dist/` to a
   docker-archive with the pinned skopeo (`docker load` can't read a buildx

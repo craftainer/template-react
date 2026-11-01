@@ -124,6 +124,24 @@ sbom: check-arch repo-check
 release-assets: check-arch repo-check image-smoke
 	test -f $(ASSET).tar && test -f $(ASSET).spdx.json
 
+# Registry credentials for publish and finalize, as shell that sets $user and
+# $pass. The OCI_REGISTRY_USERNAME/OCI_REGISTRY_PASSWORD secrets win when
+# set. Otherwise, on ghcr.io only (a GITHUB_TOKEN is valid nowhere else), the
+# workflow's own GITHUB_ACTOR/GITHUB_TOKEN are used (release.yml grants
+# `packages: write`). Anywhere else the missing secret is an error.
+REGISTRY_CREDS = user="$$OCI_REGISTRY_USERNAME"; pass="$$OCI_REGISTRY_PASSWORD"; \
+	if [ -z "$$user" ]; then \
+	  if [ "$(OCI_REGISTRY)" != ghcr.io ]; then \
+	    echo "error: OCI_REGISTRY_USERNAME is not set; it and OCI_REGISTRY_PASSWORD are required for registry $(OCI_REGISTRY) (GITHUB_TOKEN works only for ghcr.io)" >&2; exit 1; \
+	  fi; \
+	  user="$$GITHUB_ACTOR"; pass="$$GITHUB_TOKEN"; \
+	  if [ -z "$$user" ] || [ -z "$$pass" ]; then \
+	    echo "error: OCI_REGISTRY_USERNAME is not set and GITHUB_ACTOR/GITHUB_TOKEN are empty; set the OCI_REGISTRY_* secrets or run in GitHub Actions" >&2; exit 1; \
+	  fi; \
+	elif [ -z "$$pass" ]; then \
+	  echo "error: OCI_REGISTRY_USERNAME is set but OCI_REGISTRY_PASSWORD is empty" >&2; exit 1; \
+	fi
+
 # Copies the tested tar from dist/ to the registry (skopeo copy --all
 # oci-archive:... docker://...), records the pushed index digest in
 # dist/<asset>.digest for finalize, and logs in through a throwaway authfile
@@ -136,9 +154,10 @@ ifeq ($(OCI_REGISTRY),)
 else
 	@$(REPO_GUARD)
 	@test -f $(ASSET).tar || { echo "$(ASSET).tar not found; run 'make build' first." >&2; exit 1; }
-	@auth="$$(mktemp -d)" && chmod 0777 "$$auth" && trap 'rm -rf "$$auth"' EXIT && \
-	printf '%s' "$$OCI_REGISTRY_PASSWORD" | bash scripts/skopeo.sh -i -v "$$auth:/auth" -- \
-		login --authfile /auth/auth.json -u "$$OCI_REGISTRY_USERNAME" --password-stdin "$(OCI_REGISTRY)" && \
+	@$(REGISTRY_CREDS); \
+	auth="$$(mktemp -d)" && chmod 0777 "$$auth" && trap 'rm -rf "$$auth"' EXIT && \
+	printf '%s' "$$pass" | bash scripts/skopeo.sh -i -v "$$auth:/auth" -- \
+		login --authfile /auth/auth.json -u "$$user" --password-stdin "$(OCI_REGISTRY)" && \
 	bash scripts/skopeo.sh -v "$$auth:/auth:ro" -- \
 		copy --all --authfile /auth/auth.json --digestfile /$(ASSET).digest \
 		oci-archive:/$(ASSET).tar docker://$(OCI_REGISTRY)/$(OCI_NAME):$(RELEASE_VERSION)-$(RELEASE_ARCH)
@@ -190,9 +209,10 @@ ifeq ($(OCI_REGISTRY),)
 	@echo "OCI_REGISTRY not set -- no manifest list to create."
 else
 	@$(REPO_GUARD)
-	@orig="$${DOCKER_CONFIG:-$$HOME/.docker}" && export DOCKER_CONFIG="$$(mktemp -d)" && trap 'rm -rf "$$DOCKER_CONFIG"' EXIT && \
+	@$(REGISTRY_CREDS); \
+	orig="$${DOCKER_CONFIG:-$$HOME/.docker}" && export DOCKER_CONFIG="$$(mktemp -d)" && trap 'rm -rf "$$DOCKER_CONFIG"' EXIT && \
 	if [ -d "$$orig/cli-plugins" ]; then ln -s "$$orig/cli-plugins" "$$DOCKER_CONFIG/cli-plugins"; fi && \
-	printf '%s' "$$OCI_REGISTRY_PASSWORD" | docker login "$(OCI_REGISTRY)" -u "$$OCI_REGISTRY_USERNAME" --password-stdin && \
+	printf '%s' "$$pass" | docker login "$(OCI_REGISTRY)" -u "$$user" --password-stdin && \
 	srcs="" && for a in $(ARCHES); do \
 		d="$$(cat dist/$(IMAGE)-$(RELEASE_VERSION)-$$a.digest)" || exit 1; \
 		srcs="$$srcs $(OCI_REGISTRY)/$(OCI_NAME)@$$d"; \

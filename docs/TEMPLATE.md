@@ -240,7 +240,11 @@ The explicit secrets remain the way to reach any other registry, or a
 package outside that repository's reach, and an instance that sets them
 should prefer them. Base's own `publish` and `finalize` are no-ops and log
 in nowhere, so each instance implements this fallback in its own
-`Makefile`. Trade-off: the token is in the job env, so every per-arch
+`Makefile`; template-docker's does: `publish` and `finalize` use the
+`OCI_REGISTRY_USERNAME`/`OCI_REGISTRY_PASSWORD` secrets when
+`OCI_REGISTRY_USERNAME` is set, else `GITHUB_ACTOR`/`GITHUB_TOKEN` when
+`OCI_REGISTRY` is `ghcr.io` (a `GITHUB_TOKEN` is valid nowhere else), else
+fail naming the missing secret. Trade-off: the token is in the job env, so every per-arch
 target (`build`, `sbom`, `release-assets`), not only `publish`, can write
 those packages.
 
