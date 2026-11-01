@@ -2,6 +2,7 @@ import { renderHook } from "@testing-library/react";
 import { act } from "react";
 import { memoryUrlAdapter } from "@craftainer/crud-views";
 import { describe, expect, it, vi } from "vitest";
+import { setDefaultResource } from "./defaultResource";
 import { PAGE_VIEW_EVENT, usePageViews, viewPath } from "./pageViews";
 
 describe("viewPath", () => {
@@ -15,6 +16,17 @@ describe("viewPath", () => {
       "/admin/heroes/record",
     );
     expect(viewPath("/", "")).toBe("/");
+  });
+
+  it("falls back to the admin's default resource when the URL names none", () => {
+    expect(viewPath("/", "view=trash", "heroes")).toBe("/heroes/trash");
+    expect(viewPath("/", "", "heroes")).toBe("/heroes");
+    expect(viewPath("/", "id=42", "heroes")).toBe("/heroes/record");
+    expect(viewPath("/", "resource=villains&view=trash", "heroes")).toBe(
+      "/villains/trash",
+    );
+    expect(viewPath("/", "view=trash")).toBe("/");
+    expect(viewPath("/", "view=trash", "../x")).toBe("/");
   });
 
   it("ignores values that are not plain segments", () => {
@@ -52,6 +64,26 @@ describe("usePageViews", () => {
     unmount();
     act(() => adapter.write("resource=heroes", "push"));
     expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports the default resource once the admin publishes it, without a duplicate", () => {
+    const adapter = memoryUrlAdapter("view=trash");
+    const send = vi.fn();
+    renderHook(() => usePageViews(adapter, () => "/", send));
+    expect(send).toHaveBeenLastCalledWith(PAGE_VIEW_EVENT, undefined, "/");
+
+    act(() => setDefaultResource("heroes"));
+    expect(send).toHaveBeenLastCalledWith(
+      PAGE_VIEW_EVENT,
+      undefined,
+      "/heroes/trash",
+    );
+    expect(send).toHaveBeenCalledTimes(2);
+
+    act(() => setDefaultResource("heroes")); // unchanged
+    expect(send).toHaveBeenCalledTimes(2);
+    act(() => setDefaultResource(undefined));
+    expect(send).toHaveBeenLastCalledWith(PAGE_VIEW_EVENT, undefined, "/");
   });
 
   it("does not re-send the same view when the host re-renders", () => {

@@ -26,6 +26,7 @@ import {
   type ReadyResource,
   type UrlAdapter,
 } from "@craftainer/crud-views";
+import { setDefaultResource } from "../analytics/defaultResource";
 import { useAuth } from "../auth/authContext";
 import { CrudApiProvider } from "../api/CrudApi";
 import { useCrudApi } from "../api/crudApiContext";
@@ -114,6 +115,13 @@ function Admin({ urlAdapter }: AdminProps) {
   const { manifest } = useCrudApi();
   const resources = useMemo(() => latestResources(manifest), [manifest]);
   const { params, update } = useUrlParams(urlAdapter);
+
+  // Page views name the resource the URL leaves out (analytics/defaultResource).
+  const defaultName = resources[0]?.name;
+  useEffect(() => {
+    setDefaultResource(defaultName);
+    return () => setDefaultResource(undefined);
+  }, [defaultName]);
 
   if (resources.length === 0) {
     return (

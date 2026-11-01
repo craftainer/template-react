@@ -65,7 +65,7 @@ pnpm build      # production bundle -> dist/
 pnpm storybook  # component workshop, http://localhost:6006
 tests/visual/run.sh         # visual regression + axe over the stories (Docker)
 tests/visual/run.sh update  # rewrite the screenshot baselines
-tests/e2e/run.sh            # admin journey against a running template-fastapi (Docker)
+tests/e2e/lane.sh           # real-stack e2e: Keycloak, Valkey, BFF and API (Docker)
 ```
 
 ## Connecting to the backend

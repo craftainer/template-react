@@ -269,12 +269,6 @@ test.describe("page views from the SPA", () => {
   });
 
   test("the trash view is reported as its own page", async ({ page }) => {
-    // Known failure in this repo's SPA, not in the BFF: `viewPath` only adds
-    // the view to the path when the URL also has a `resource`, but the admin
-    // with a single resource writes `?view=trash` alone, so every view is
-    // reported as `/`. Remove this line when `src/analytics/pageViews.ts` is
-    // fixed; Playwright then flags the test as unexpectedly passing.
-    test.fail(true, "src/analytics/pageViews.ts: viewPath needs `resource`");
     const urls: string[] = [];
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === "/bff/analytics") {
