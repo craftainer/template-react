@@ -436,8 +436,8 @@ removes the container and the private `image-smoke-*` tag it created
 
 Optional. It serves a runtime image that needs the group-0 user and
 writable directories; an instance whose `runner` stage doesn't call it
-(e.g. `template-react`'s nginx runner, whose base image already has its own
-non-root user) simply never runs it. Both files stay in the tree, since
+(e.g. `template-react`'s Node runner, whose base image already has its own
+non-root `node` user) simply never runs it. Both files stay in the tree, since
 they are template-owned, and nothing checks or requires them.
 
 `scripts/runner-setup.sh` creates the user (UID `APP_UID`, group 0), makes

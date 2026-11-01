@@ -4,6 +4,14 @@
 
 Accepted
 
+Note (2026-11, ADR 0007): the browser no longer holds an OIDC session. The
+token provider and `signinSilent()` in "Client wiring" are replaced by cookie
+sessions with the BFF (`credentials: "include"`, `X-CSRF: 1`, `cacheScope` from
+`/bff/user`'s `sub`), the `/api` prefix is the BFF's `/api/crud` upstream, and
+production no longer uses nginx (the "adds no such header" remark is moot; the
+BFF sets its own headers). The query-string navigation here is what ADR 0008's
+page views read.
+
 ## Context
 
 `HeroesPage` was written for one resource: it hardcoded the Hero columns and

@@ -18,10 +18,29 @@ services:
     # to the backend".
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # The dev BFF's session store. Plaintext is the documented dev-only
-    # opt-out (the BFF refuses plaintext non-loopback URLs otherwise); see
-    # stack/valkey/README.md.
+    # The dev BFF (`pnpm dev:bff`, port 8787; Vite on 5173 proxies to it). All
+    # values are dev-only placeholders: the realm and the `bff` client secret
+    # are template-fastapi's devcontainer Keycloak (its
+    # .devcontainer/stack/keycloak/keycloak.env, reached through the host's
+    # forwarded port 8080 like the API on 8000).
     environment:
+      # The browser-facing origin of the dev app (the Vite server); it derives
+      # redirect_uri and the Origin check.
+      PUBLIC_ORIGIN: http://localhost:5173
+      # The `iss` Keycloak puts in tokens (its KC_HOSTNAME)...
+      OIDC_ISSUER: http://localhost:8080/realms/template-fastapi
+      # ...while this container reaches Keycloak through the host gateway
+      # (its realm sets KC_HOSTNAME_BACKCHANNEL_DYNAMIC, so the discovery
+      # document's token and JWKS endpoints use the host the BFF asked).
+      OIDC_DISCOVERY_URL: http://host.docker.internal:8080/realms/template-fastapi/.well-known/openid-configuration
+      OIDC_CLIENT_SECRET: dev-only-bff-client-secret
+      # Plain-http IdP: development only (refused when NODE_ENV=production).
+      OIDC_ALLOW_INSECURE: "true"
+      BFF_PORT: "8787"
+      BFF_UPSTREAMS: '{"crud":{"url":"http://host.docker.internal:8000","audience":"api","methods":["GET","POST","PUT","PATCH","DELETE"]}}'
+      # The BFF's session store. Plaintext is the documented dev-only opt-out
+      # (the BFF refuses plaintext non-loopback URLs otherwise); see
+      # stack/valkey/README.md.
       SESSION_STORE_URL: redis://valkey:6379
       SESSION_STORE_ALLOW_PLAINTEXT: "true"
     depends_on:

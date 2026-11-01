@@ -20,7 +20,7 @@
       "onAutoForward": "openPreview"
     },
     "8081": {
-      "label": "Production image (BFF)",
+      "label": "Production image (BFF; run with -p 8081:8080, the container listens on 8080)",
       "onAutoForward": "silent"
     },
     "8787": {

@@ -24,7 +24,7 @@
   setup: group-0 runtime user for arbitrary-UID platforms (run before copying
   app code, which is then copied read-only), then every
   `runner-setup.d/*.sh`. An instance whose runner image doesn't call it
-  (an nginx runner, say) ignores it and `runner-setup.d/`.
+  (template-react's Node runner, say) ignores it and `runner-setup.d/`.
 - `image-scan.sh` — the manual-stage `image-scan` hook: Trivy over the
   tar for the current `RELEASE_VERSION`/arch in `dist/`.
 - `test-image-scripts.sh` — the `image-scripts-test` hook: offline tests of
@@ -43,9 +43,6 @@
 - `develop.d/10-corepack.sh` — enables pnpm via Corepack in the
   devcontainer image; `post-create.d/10-pnpm-install.sh` — installs the
   app's dependencies. Both template-react's own, run by the hooks above.
-- `docker/` — the runtime image's own assets: `nginx.conf.template` and
-  `docker-entrypoint.d/20-envsubst-app-config.sh`, both `COPY`'d into
-  the top-level `Dockerfile`'s `runner` stage.
 
 ## Do
 

@@ -6,12 +6,17 @@ import Container from "@mui/material/Container";
 import Stack from "@mui/material/Stack";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
+import { usePageViews } from "./analytics/pageViews";
 import { useAuth } from "./auth/authContext";
 import { HealthStatus } from "./components/HealthStatus";
 import { AdminPage } from "./pages/AdminPage";
 
 function App() {
   const auth = useAuth();
+  // One page view per distinct view, signed in or not (ADR 0008). The BFF
+  // decides whether it is recorded (GPC/DNT, consent), so there is no consent
+  // UI here.
+  usePageViews();
 
   return (
     <>

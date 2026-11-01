@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Superseded by [0007](0007-adopt-craftainer-bff.md): sign-in now happens in
+the BFF, and the SPA holds no tokens. The backend-realm reasoning below
+still describes why the realm is `template-fastapi`'s.
 
 ## Context
 

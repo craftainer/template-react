@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Superseded by [0007](0007-adopt-craftainer-bff.md): the proxy is now the
+BFF's allowlisted `/api/<upstream>/*` proxy (dev and production), and there
+is no nginx or runtime `config.js` any more. The same-origin-instead-of-CORS
+reasoning still holds.
 
 ## Context
 
