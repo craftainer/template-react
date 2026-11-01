@@ -98,6 +98,21 @@ template-fastapi's devcontainer image and runs `uv sync`. The journeys create an
 archive one hero per run and never delete or truncate anything else; `down -v`
 discards the database anyway.
 
+## Known failures (marked `test.fail`)
+
+Two tests are expected to fail until the cause is fixed; Playwright reports them
+as failures the moment they start passing, so the marker cannot rot.
+
+- `admin.e2e.ts`: `@craftainer/bff` 0.1.0 sends a fixed CSP with `style-src
+'self'`, which blocks Emotion's inline styles (the app renders unstyled), and
+  the grid's conditional save then fails with "Could not read this record's
+  version" (probably its forced `Cache-Control: no-store` on `/api/*`, which
+  crud-sdk's cache will not store). Both belong in `lib-bff-ts`.
+- `analytics.e2e.ts` (`the trash view is reported as its own page`): this repo's
+  `src/analytics/pageViews.ts` reports the view only when the URL has a
+  `resource`, but the admin writes `?view=trash` alone, so every view is
+  reported as `/`.
+
 ## Do
 
 - Keep it to journeys that need the real Keycloak, Valkey or backend; component

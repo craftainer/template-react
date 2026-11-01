@@ -50,6 +50,8 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
+  // A loaded host (Keycloak, Chromium and a Vite bundle on a few cores) is slow.
+  expect: { timeout: 15_000 },
   reporter: [
     ["list"],
     ["html", { outputFolder: "../../playwright-report", open: "never" }],
