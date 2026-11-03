@@ -70,8 +70,10 @@ jobs:
       # branch doesn't exist; the `fix` job's own trust condition
       # still gates whether that's used.
       - id: resolve-sha
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          sha=$(gh api "repos/${{ github.repository }}/commits/bug/${{ github.event.issue.number }}-repro" --jq .sha 2>/dev/null || true)
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/bug/${ISSUE_NUMBER}-repro" --jq .sha 2>/dev/null || true)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   fix:
@@ -82,20 +84,51 @@ jobs:
     # opt-in `claude:ok`.
     if: >-
       ${{ needs.gate.outputs.has-key == 'true' &&
+      needs.gate.outputs.repro-sha != '' &&
       contains(github.event.issue.labels.*.name, 'bug:repro-ready') &&
       (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) ||
        contains(github.event.issue.labels.*.name, 'claude:ok')) }}
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 20
+    permissions:
+      contents: read
     env:
       GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
     steps:
+      # The whole history, so the branch can be compared with the default
+      # branch below. The tip is pinned to the SHA the gate job resolved.
       - name: Check out repro branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
           ref: ${{ needs.gate.outputs.repro-sha }}
+
+      # A snapshot outside the workspace (and so outside the devcontainer's
+      # bind mount) of the default branch: everything run on the runner or
+      # copied into the container comes from it, never from the repro
+      # branch's own tree. `issues` events run on the default branch's
+      # latest commit.
+      - name: Snapshot the trusted tooling
+        env:
+          TRUSTED_SHA: ${{ github.sha }}
+        run: |
+          mkdir "$RUNNER_TEMP/trusted"
+          git archive "$TRUSTED_SHA" | tar -x -C "$RUNNER_TEMP/trusted"
+          "$RUNNER_TEMP/trusted/.github/scripts/moderate_prepare.sh" "$RUNNER_TEMP/trusted"
+
+      # The devcontainer and image build below read the branch's own
+      # `.devcontainer/`, `Dockerfile`, compose and `scripts/develop.sh`.
+      # The branch must not differ from its merge base with the default
+      # branch in any of them (or in any other path the apply step denies);
+      # otherwise no Claude step runs and the result is a `needs-human` note.
+      - name: Verify the branch against the path allow-list
+        id: verify
+        continue-on-error: true
+        env:
+          TRUSTED_SHA: ${{ github.sha }}
+        run: '"$RUNNER_TEMP/trusted/.github/scripts/moderate_verify_branch.sh" "$TRUSTED_SHA"'
 
       # Unique per run so concurrent runs never collide on
       # container/volume/network names, and so the teardown step below tears
@@ -103,26 +136,33 @@ jobs:
       - name: Set compose project name
         run: echo "COMPOSE_PROJECT_NAME=ci-moderate-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
 
-      - name: Write Claude API key
-        run: |
-          install -m 600 /dev/null .secrets/claude.txt
-          printf '%s' "${{ secrets.ANTHROPIC_API_KEY }}" > .secrets/claude.txt
-
+      # The API key reaches the container only through `with: env:` (->
+      # `devcontainer exec --remote-env`), i.e. the environment of this one
+      # command. A step-level `env:` alone is NOT forwarded into the
+      # container. There is no GitHub token in the container at all: this
+      # job's prompt has no `gh` access.
       - name: Run Claude bug fix
+        if: steps.verify.outcome == 'success'
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
+        env:
+          # Build-time only (compose.yml's `github_token` build secret): not
+          # in the `with: env:` list below, so not forwarded into the container.
+          GITHUB_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODERATION_EXTRA_TOOLS: ${{ vars.MODERATION_EXTRA_TOOLS }}
+          # Hosts the sandbox lets Claude's commands reach (everything else is refused).
+          MODERATION_ALLOWED_DOMAINS: github.com${{ vars.MODERATION_EXTRA_DOMAINS && format(',{0}', vars.MODERATION_EXTRA_DOMAINS) || '' }}
         with:
           runCmd: >-
-            .github/scripts/run_claude.sh
-            .github/scripts/prompts/bug-fix.md
-            "Read,Grep,Glob,Write,Edit,Bash(git *),Bash(prek run *)${{ vars.MODERATION_EXTRA_TOOLS && format(',{0}', vars.MODERATION_EXTRA_TOOLS) || '' }}"
+            .moderation-tools/run_claude.sh
+            .moderation-tools/prompts/bug-fix.md
+            "Read,Grep,Glob,Write,Edit,Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git add *),Bash(git commit *),Bash(git restore *),Bash(git rm *),Bash(git mv *),Bash(git ls-files *),Bash(git rev-parse *),Bash(prek run --config .moderation-tools/pre-commit-config.yaml *)"
             40 900
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
-
-      - name: Remove Claude API key
-        if: always()
-        run: rm -f .secrets/claude.txt
+          env: |
+            ANTHROPIC_API_KEY
+            MODERATION_EXTRA_TOOLS
+            MODERATION_ALLOWED_DOMAINS
+            GITHUB_ISSUE_NUMBER
 
       # Always packages/uploads, even if Claude's step above failed or
       # timed out, so the apply job still gets a "failed" outcome and
@@ -132,10 +172,11 @@ jobs:
         env:
           RESULT_SHA: ${{ needs.gate.outputs.repro-sha }}
         run: |
-          .github/scripts/moderate_package_result.sh \
+          "$RUNNER_TEMP/trusted/.github/scripts/moderate_package_result.sh" \
             "$RESULT_SHA" \
             moderation-result \
-            .moderation-outcome.md
+            "$GITHUB_WORKSPACE" \
+            build
 
       - name: Upload result artifact
         if: always()
@@ -171,11 +212,14 @@ jobs:
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
 
       # The `fix` job uploads in an `if: always()` step, so a missing
       # artifact means it died before packaging (runner crash, upload

@@ -6,7 +6,15 @@
   [`devcontainers/ci`](https://github.com/devcontainers/ci)), under a
   per-run `COMPOSE_PROJECT_NAME` that a final step tears down. Runs as a
   two-leg `amd64`/`arm64` matrix (see "Architecture matrix" below).
-- `release.yml` — manually triggered. Takes a release channel
+- `release.yml` — manually triggered, and only from the default branch:
+  the `version` job's first step fails on any other ref, and `build`,
+  `release` and `publish-packages` repeat the check in their own `if:`.
+  Those three jobs (the ones with `contents: write`, `packages: write`,
+  `id-token: write` or registry/npm secrets) also declare `environment:
+  release`: the server-side rule, with deployment branches limited to the
+  default branch and the registry/npm secrets held in that environment
+  (setup: `../../docs/TEMPLATE.md`, "Release environment").
+  Takes a release channel
   (`alpha`/`beta`/`rc`/`full`) and a SemVer 2 bump
   (`major`/`minor`/`patch`/`none`), computes the next tag via
   `../scripts/compute_next_version.py`, then drives the instance's
@@ -95,6 +103,57 @@ plan on a branch, and asks a maintainer to confirm (the
 `enhancement:confirm` label) before a second stage implements it and
 opens a PR.
 
+**Every Claude job is read-only; a separate `apply` job writes.** All four
+Claude-invoking workflows have the same shape (the threat model, the
+alternatives and the sources are in
+[`https://github.com/craftainer/template-base/blob/main/docs/adrs/0001-harden-the-issue-moderation-workflows.md`](https://github.com/craftainer/template-base/blob/main/docs/adrs/0001-harden-the-issue-moderation-workflows.md)):
+
+- The Claude job (`triage`/`fix`/`build`) holds `contents: read` (triage
+  also `issues: read`, for `gh issue view`) and nothing else. Its only
+  output is a `moderation-result` artifact (`meta.json` plus an optional
+  `patch.diff`): data, nothing executable.
+- The `apply` job runs no Claude and no code from the issue, the repro/plan
+  branch or the artifact. It checks out the default branch, validates
+  every value it reads and only then pushes, comments and labels. Triage
+  now has an `apply` job too: Claude no longer comments, labels or pushes
+  the repro/plan branch itself; `moderate_apply_triage.sh` does, from
+  Claude's `action` (checked against a fixed table of three names per
+  kind, each mapped to one fixed label) and `comment` (capped at 10000
+  characters, `@` broken so it pings nobody, and a branch-diff link added
+  by the script).
+- What `apply` validates: the issue number is the run's issue; `base_sha`
+  is 40 lowercase hex characters, never reaches git as an option (refs
+  follow `--`), and is an ancestor of the default branch or, for a fix or
+  build, of the bot branch's current tip (checked with the compare API, so
+  there is no clone depth limit); the patch is at most 2 MiB; and the
+  commits the patch produces pass `moderate_check_paths.sh`. That
+  allow-list refuses any change under `.github/`, `.devcontainer/`,
+  `.claude/` or `.vscode/`, to `.mcp.json`, `.pre-commit-config.yaml`,
+  `.gitattributes`, `.gitmodules`, a `Makefile` or `*.mk`, a `Dockerfile*`
+  or `compose*.y*ml`, `scripts/release*`, `scripts/develop.sh`,
+  `scripts/post-create.sh` and their `.d/` directories, plus any symlink or
+  submodule. A fix that needs one of those becomes a `needs-human` note,
+  not a PR.
+- The default branch is the base for the PR (`--base` is the repository's
+  default branch, not a hard-coded `main`).
+
+**Claude never runs from its own tree.** The job snapshots the default
+branch (`git archive` into `$RUNNER_TEMP/trusted`, outside the
+devcontainer's bind mount) and everything with credentials comes from that
+snapshot: `moderate_prepare.sh` copies the launcher, the prompts and the
+`prek` configuration to `.moderation-tools/` (hidden from git through
+`.git/info/exclude`), and `moderate_package_result.sh` runs from the
+snapshot too. It reads the commits through a fresh bare repository, not
+through the agent's `.git/config`, and reads Claude's note or triage file
+only if it is a regular file really under `.moderation-out/` (a symlink
+there is ignored, since the runner would otherwise follow it to a runner
+file). Fix/build additionally run `moderate_verify_branch.sh` before
+Claude starts: the repro/plan branch must not differ from its merge base
+with the default branch in any denied path, because the devcontainer and
+image build read the branch's own `.devcontainer/`, `Dockerfile` and
+`scripts/develop.sh`. If it does, no Claude step runs and the result is a
+`needs-human` note.
+
 **Fix/build is one workflow with two jobs, to keep Claude out of any job
 that can push/PR/relabel.** `moderate-bug-fix.yml` /
 `moderate-feature-build.yml` start on `issues: [labeled]` for the
@@ -108,8 +167,9 @@ and runs Claude against the issue's untrusted title/body/comments, but
 never holds write-scoped credentials. Claude commits locally (or, if it
 can't converge, writes an explanation to `.moderation-outcome.md`) and
 the job packages that as a `moderation-result` artifact
-(`../scripts/moderate_package_result.sh`: a `git format-patch` diff plus a
-small JSON outcome record — data, nothing executable). The `apply` job
+(`../scripts/moderate_package_result.sh`, run from the trusted snapshot: a
+`git format-patch` diff plus a small JSON outcome record — data, nothing
+executable). The `apply` job
 (`needs:` the first one, its own job-level `permissions: contents:
 write, issues: write, pull-requests: write`) runs from the default
 branch's checkout, downloads that artifact and does the actual `git
@@ -137,11 +197,12 @@ under the concurrency group. `apply` is idempotent, so that retry is safe
 after a partial first run:
 
 - The branch (`<bug|feature>/<n>-<repro|plan>`) is bot-owned: triage's
-  Claude run creates it and only `apply` writes to it afterwards. A
-  retry's `git am` makes new SHAs, so `apply` pushes with
+  `apply` job creates it from the validated patch and only the `apply`
+  jobs write to it afterwards. A retry's `git am` makes new SHAs, so
+  `apply` pushes with
   `--force-with-lease=<branch>:<tip read from the remote>`: it fails if
-  anyone pushed in between, and it refuses to overwrite a tip that is not
-  the base SHA or a descendant of it (foreign work).
+  anyone pushed in between, and it refuses to overwrite a tip that does
+  not descend from the base SHA (foreign work).
 - An open PR for the branch (`gh pr list --head`) is reused, never
   duplicated.
 - The stage label swaps in one `gh issue edit` (`*-ready` to
@@ -156,9 +217,6 @@ after a partial first run:
   re-added repeatedly during a run, each queued run can post its own
   not-built comment (the ready label is still present, so the re-check
   below does not skip them).
-- The foreign-work check fetches with `--depth=100`. A remote tip more
-  than 100 commits ahead of the base SHA is misjudged as foreign and
-  fails with the generic "Applying the automated result failed" message.
 
 **The confirm label means "run attempted".** `gate` consumes it even when
 the run is then skipped (missing `ANTHROPIC_API_KEY`, untrusted author
@@ -194,9 +252,9 @@ and a usage alert at 80% of it) and storing that key as the
 `ANTHROPIC_API_KEY` repository secret, then running `moderate-setup.yml`
 once to create the labels below.
 
-Two independent label sequences track state, applied by `gh issue edit`
-inside each stage's Claude prompt (`../scripts/prompts/`) or by a
-deterministic workflow step:
+Two independent label sequences track state, applied by the `apply` jobs
+(`gh issue edit`) from a fixed action-to-label table, or by a deterministic
+workflow step:
 
 - Bug: `bug` → (`bug:needs-info` | `bug:repro-ready`) → `bug:fixed`; a maintainer adds `bug:confirm` to start the fix (the
   label is consumed when the run starts).
@@ -237,31 +295,95 @@ issue carried when closed, reopening it strips every `bug:*`/
 `enhancement:*` stage label back to the bare `bug`/`enhancement` label
 (`../scripts/reset_issue_state.sh`) and re-runs triage as if new, rather
 than resuming stale state — the repo may have changed, or a prior
-branch/PR may already be gone via cleanup.
+branch/PR may already be gone via cleanup. The reset edits labels and
+deletes branches, so it runs in the triage workflow's `apply` job, ahead
+of applying the new result, not in the read-only Claude job.
 
 **Environment.** All four Claude-invoking jobs run `claude` the same way
 `checks.yml` runs `prek`: inside the actual devcontainer (`develop`
 stage) via `devcontainers/ci`, so Claude runs the exact CLI build pinned
-in `.devcontainer/Dockerfile`'s `CLAUDE_CODE_VERSION`. Each writes the
-`ANTHROPIC_API_KEY` secret to `.secrets/claude.txt` first (matching
-`.secrets/README.md`'s "one file per secret" convention) and removes it
-in an `if: always()` step; `../scripts/run_claude.sh` reads it, sets a
-dedicated `claude-moderator[bot]` git identity for the commits this
-pipeline makes, and invokes `claude -p <prompt> --model claude-sonnet-5
---effort medium --max-turns <n> --allowedTools <list>` under a
-`timeout`. Every job caps wall-clock (`timeout-minutes:` 10 for triage,
-20 for fix/build) and turns (15 for triage, 40 for fix/build) so a
-runaway prompt fails closed instead of burning CI/API budget; the actual
-spend cap lives in the Anthropic Console (a dedicated workspace/key with
-a monthly limit), since `claude` itself has no such flag.
+in `.devcontainer/Dockerfile`'s `CLAUDE_CODE_VERSION`. The
+`ANTHROPIC_API_KEY` secret is never written to a file: the step lists it
+(and `MODERATION_EXTRA_TOOLS`, `MODERATION_ALLOWED_DOMAINS`, `GITHUB_ISSUE_NUMBER` and, for triage,
+`GH_TOKEN`) under `with: env:`, which `devcontainers/ci` hands to
+`devcontainer exec --remote-env`, so it exists only in the environment of
+the one `run_claude.sh` command. **A step-level `env:` alone does not reach
+the container**: the action passes only the names in `with: env:` (or all
+of the runner's variables with `inheritEnv: true`) to the command, while
+the step's own `env:` stays in the action process, which is why
+`GITHUB_TOKEN` there is only the image build's `github_token` secret. (Before
+this hardening the moderation steps relied on the step `env:` for
+`GH_TOKEN`; `checks.yml` was already correct.) `run_claude.sh` sets a
+dedicated `claude-moderator[bot]` git identity through `GIT_AUTHOR_*` /
+`GIT_COMMITTER_*` (nothing is written to `.git/config`), sets
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` so Bash commands, hooks and MCP
+servers Claude starts do not get the key, passes inline `--settings`
+deny rules (the command-line level of Claude Code's settings precedence,
+so a project `.claude/settings.json` cannot loosen them) for `/proc`,
+`/sys`, `~/.claude`, `~/.config/gh`, `.moderation-tools/` and `.git/`, and
+invokes `claude -p <prompt> --model claude-sonnet-5 --effort medium
+--max-turns <n> --allowedTools <list>` under a `timeout`. Every job caps
+wall-clock (`timeout-minutes:` 10 for triage, 20 for fix/build) and turns
+(15 for triage, 40 for fix/build) so a runaway prompt fails closed instead
+of burning CI/API budget; the actual spend cap lives in the Anthropic
+Console (a dedicated workspace/key with a monthly limit), since `claude`
+itself has no such flag.
 
-**Extra tools.** The read-only Claude jobs are limited to `git`, `gh`,
-file tools and `prek run`. An instance that needs Claude to run more
-(e.g. a targeted repro) sets the optional `MODERATION_EXTRA_TOOLS`
-repository variable to extra comma-separated Claude Code `--allowedTools`
-entries, e.g. `Bash(uv run pytest *)`; it's appended to each read-only
-job's tool list and never applies to the `apply` jobs, which don't
-run Claude.
+**Tool limits.** `--allowedTools` is an allow-list for an agent that is
+already in a hostile prompt, not a sandbox, so it is narrow and the
+privileged work is elsewhere. Every Claude job gets `Read`, `Grep`, `Glob`,
+`Write`, `Edit` and these Bash patterns, each matched as a whole command
+(compound commands are split and each part must match):
+
+- git, local subcommands only: `status`, `diff`, `log`, `show`, `add`,
+  `commit`, `restore`, `rm`, `mv`, `ls-files`, `rev-parse` (triage also
+  `checkout -b` and `switch -c`). No `git *`: nothing can reach `-c`,
+  `config`, `push`, `remote`, `fetch`, `clone` or an alias.
+- `prek run --config .moderation-tools/pre-commit-config.yaml *` for
+  triage-bug, fix and build: the hook configuration is the trusted copy,
+  not the tree's own `.pre-commit-config.yaml`. Only the config is
+  trusted: its `local`/`script` hooks run repository scripts from the tree
+  Claude edits, so those scripts are agent-editable and the sandbox, not
+  the config copy, is what contains them.
+- `gh issue view *` and `gh repo view *`, triage only (read-only token).
+  No `gh issue comment`/`edit`, no `gh pr`, no `gh api`.
+
+**Extra tools.** An instance that needs Claude to run more (e.g. a
+targeted repro) sets the optional `MODERATION_EXTRA_TOOLS` repository
+variable to extra comma-separated Claude Code `--allowedTools` entries,
+e.g. `Bash(uv run pytest *)`. It reaches `run_claude.sh` as an
+environment variable (never spliced into a shell command), is appended
+to each Claude job's tool list and never applies to the `apply` jobs,
+which don't run Claude. Whatever it adds widens what a prompt injection
+can do inside the job, so treat it like the API key's scope.
+
+**Sandbox (fail closed).** Code Claude writes and then runs through `prek`
+(a test, a hook) would otherwise run as the same user as `claude`, with
+network access, and could read the claude process's environment.
+`run_claude.sh` therefore turns on Claude Code's built-in sandbox
+(<https://code.claude.com/docs/en/sandboxing.md>) through the inline
+`--settings`: `sandbox.enabled`, `failIfUnavailable: true` (claude exits at
+startup if bubblewrap cannot run), `allowUnsandboxedCommands: false` (no
+retry outside the sandbox), `autoAllowBashIfSandboxed: false` (the
+`--allowedTools` list still decides which Bash commands run),
+`network.allowedDomains` from `MODERATION_ALLOWED_DOMAINS` with
+`strictAllowlist: true` (triage: `github.com,api.github.com`, fix/build:
+`github.com`, plus the optional `MODERATION_EXTRA_DOMAINS` repository
+variable, e.g. a package registry), `credentials.envVars` denying
+`ANTHROPIC_API_KEY` in every sandboxed command, `filesystem.denyRead` for
+the container user's credential locations and `allowWrite` of `~/.cache`.
+`enableWeakerNestedSandbox` is deliberately not set: it would bind-mount the
+container's `/proc` and expose the claude process's environment. The
+sandbox covers Bash and what it starts, not the file tools, which the
+`permissions.deny` rules cover. The image installs `bubblewrap` and `socat`
+(`scripts/develop.sh`). If the devcontainer cannot create the sandbox
+(for example no user namespaces), the Claude step fails and the issue gets a
+`needs-human` note; moderation never runs unsandboxed. **Unverified until a
+real run:** this repository has no key, so whether bubblewrap works inside
+the devcontainer on a GitHub-hosted runner, and that the sandboxed commands
+cannot see the claude process's `/proc/<pid>/environ`, are checked only by
+the procedure in the pull request that introduced this (an agent-run
+command must fail to read that file and to reach an arbitrary host).
 
 A single `moderate-issue-<number>` `concurrency:` group, shared across
 the two triage workflows, the two worker (fix/build) workflows, and
@@ -341,6 +463,16 @@ the digest are those of the tested artifact:
 
 ## Release variables and secrets
 
+The secrets below belong in the `release` environment (Settings →
+Environments), not in repository secrets: `build`, `release` and
+`publish-packages` declare `environment: release`, and the environment's
+deployment branches are limited to the default branch, so a run from
+another ref can't read them. The workflow reads them as `secrets.NAME`
+either way, and an environment secret wins over a repository secret of the
+same name. Variables stay repository-level. Configure the environment
+before the first release that uses it: a missing one is created by GitHub
+with no rules.
+
 `release.yml` passes these to the Makefile targets as environment
 variables of the same name; unset ones are empty, and a target should skip
 cleanly when the registry isn't configured.
@@ -383,6 +515,9 @@ cleanly when the registry isn't configured.
   `make finalize` can push to the repository's own GHCR packages with
   `GITHUB_TOKEN` (no other job has it; the token is in `build`'s job
   env, so every per-arch target can use it). Leave `checks.yml` at `contents: read`.
+- Keep `environment: release` on exactly the `release.yml` jobs that hold
+  `contents: write`, `packages: write`, `id-token: write` or registry/npm
+  secrets (`build`, `release`, `publish-packages`), and none elsewhere.
 - Keep `id-token: write` on `release.yml`'s `publish-packages` job only
   (PyPI, npm and crates.io trusted publishing via GitHub OIDC). GitHub
   permissions are per job, not per step, and that job's `if:` on the

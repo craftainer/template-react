@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import itertools
+import json
 import os
 import re
 import shutil
@@ -610,74 +612,53 @@ class VerifyReleaseTagTest(unittest.TestCase):
         self.assertNotIn("commits/refs/tags", text)
 
 
-class DevelopScriptRetryTest(unittest.TestCase):
-    """``scripts/develop.sh`` never nests ``fetch``'s retries inside ``retry``'s."""
+class DevelopScriptTest(unittest.TestCase):
+    """``scripts/develop.sh``: bounded retries, and no unverified download is ever run."""
+
+    text = (SCRIPTS.parents[1] / "scripts" / "develop.sh").read_text()
 
     def test_retried_steps_do_not_download(self) -> None:
-        """A function passed to ``retry`` neither calls ``fetch`` nor ``download_installer``."""
-        text = (SCRIPTS.parents[1] / "scripts" / "develop.sh").read_text()
-        retried = re.findall(r"^retry (\w+)", text, re.MULTILINE)
-        self.assertGreaterEqual(len(retried), 3)
+        """A function passed to ``retry`` never calls ``fetch`` (retries would multiply)."""
+        retried = re.findall(r"^retry (\w+)", self.text, re.MULTILINE)
+        self.assertGreaterEqual(len(retried), 1)
         for name in retried:
-            body = re.search(rf"^{name}\(\) \{{\n(.*?)^\}}", text, re.MULTILINE | re.DOTALL)
+            body = re.search(rf"^{name}\(\) \{{\n(.*?)^\}}", self.text, re.MULTILINE | re.DOTALL)
             self.assertIsNotNone(body, name)
-            self.assertNotRegex(body.group(1), r"\b(fetch|download_installer)\b", name)  # type: ignore[union-attr]
+            self.assertNotRegex(body.group(1), r"\bfetch(_checked)?\b", name)  # type: ignore[union-attr]
 
-    def test_failed_installer_download_names_the_installer(self) -> None:
-        """A permanent download failure says which installer failed, and still aborts."""
-        text = (SCRIPTS.parents[1] / "scripts" / "develop.sh").read_text()
-        parts = []
-        for name in ("tmp_path", "fetch", "download_installer"):
-            body = re.search(rf"^{name}\(\) \{{\n.*?^\}}\n", text, re.MULTILINE | re.DOTALL)
-            self.assertIsNotNone(body, name)
-            parts.append(body.group(0))  # type: ignore[union-attr]
-        with tempfile.TemporaryDirectory() as tmp:
-            curl = Path(tmp) / "curl"
-            curl.write_text("#!/usr/bin/env bash\necho 'curl: (22) 404' >&2\nexit 22\n")
-            curl.chmod(0o755)
-            script = (
-                'set -euo pipefail\ncleanup_paths=()\ntmp_result=""\ninstaller_script=""\n'
-                + "".join(parts)
-                + 'download_installer uv "https://example.invalid/uv-installer.sh"\n'
-                + "echo not-reached\n"
+    def test_no_vendor_installer_script_is_run(self) -> None:
+        """uv, prek and Claude Code are verified binaries, never a downloaded install script."""
+        self.assertNotRegex(self.text, r"installer\.sh|claude\.ai/install|/install\.sh")
+        self.assertNotIn("download_installer", self.text)
+        for tool in ("uv", "prek"):
+            self.assertRegex(
+                self.text, rf'fetch_checked "https://github\.com/[^"]*/\${{{tool}_asset}}\.tar\.gz"'
             )
-            result = subprocess.run(  # noqa: S603 -- fixed argv
-                ["bash", "-c", script],  # noqa: S607
-                env={**os.environ, "PATH": f"{tmp}{os.pathsep}{os.environ['PATH']}"},
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=30,
-            )
-        self.assertEqual(result.returncode, 22, result.stderr)
-        self.assertNotIn("not-reached", result.stdout)
-        self.assertIn("uv installer", result.stderr)
-        self.assertIn("https://example.invalid/uv-installer.sh", result.stderr)
-        self.assertIn("curl exit 22", result.stderr)
-        text_calls = re.findall(r"^download_installer (\S+) ", text, re.MULTILINE)
-        self.assertEqual(text_calls, ["uv", "prek", "claude"])
+        self.assertIn("install_claude ", self.text)
+        self.assertRegex(self.text, r"(?m)^claude_signing_fpr=[0-9A-F]{40}$")
 
-    def run_download(self, curl_body: str) -> tuple[subprocess.CompletedProcess[str], int]:
-        """Run ``download_installer`` against a fake ``curl``; return the process and curl calls."""
-        text = (SCRIPTS.parents[1] / "scripts" / "develop.sh").read_text()
+    def run_bash(
+        self, functions: tuple[str, ...], body: str, curl_body: str
+    ) -> tuple[subprocess.CompletedProcess[str], int]:
+        """Run ``body`` with ``develop.sh``'s helper functions and a fake ``curl``; return it and the curl call count."""
         parts = []
-        for name in ("tmp_path", "fetch", "download_installer"):
-            body = re.search(rf"^{name}\(\) \{{\n.*?^\}}\n", text, re.MULTILINE | re.DOTALL)
-            self.assertIsNotNone(body, name)
-            parts.append(body.group(0))  # type: ignore[union-attr]
+        for name in functions:
+            found = re.search(rf"^{name}\(\) \{{\n.*?^\}}\n", self.text, re.MULTILINE | re.DOTALL)
+            self.assertIsNotNone(found, name)
+            parts.append(found.group(0))  # type: ignore[union-attr]
         with tempfile.TemporaryDirectory() as tmp:
-            for name, body in (
+            for name, content in (
                 ("curl", f'#!/usr/bin/env bash\necho x >> "{tmp}/calls"\n{curl_body}\n'),
                 ("sleep", "#!/usr/bin/env bash\nexit 0\n"),
             ):
                 path = Path(tmp) / name
-                path.write_text(body)
+                path.write_text(content)
                 path.chmod(0o755)
+            (Path(tmp) / "calls").touch()
             script = (
-                'set -euo pipefail\ncleanup_paths=()\ntmp_result=""\ninstaller_script=""\n'
+                'set -euo pipefail\ncleanup_paths=()\ntmp_result=""\nfetch_label=""\n'
                 + "".join(parts)
-                + 'download_installer uv "https://example.invalid/uv-installer.sh"\n'
-                + 'echo "installed: $(cat "$installer_script")"\n'
+                + body.replace("TMP", tmp)
             )
             result = subprocess.run(  # noqa: S603 -- fixed argv
                 ["bash", "-c", script],  # noqa: S607
@@ -690,35 +671,297 @@ class DevelopScriptRetryTest(unittest.TestCase):
             calls = (Path(tmp) / "calls").read_text().count("x")
         return result, calls
 
+    def run_fetch(self, curl_body: str) -> tuple[subprocess.CompletedProcess[str], int]:
+        """Run one labelled ``fetch`` against a fake ``curl``."""
+        return self.run_bash(
+            ("tmp_path", "fetch"),
+            'fetch_label="uv tarball" fetch "https://example.invalid/uv.tar.gz" -o TMP/out\necho not-reached\n',
+            curl_body,
+        )
+
+    def test_failed_download_names_what_failed(self) -> None:
+        """A permanent download failure says which download failed, and still aborts."""
+        result, calls = self.run_fetch("echo 'curl: (22) 404' >&2\nexit 22")
+        self.assertEqual(result.returncode, 22, result.stderr)
+        self.assertEqual(calls, 1)
+        self.assertNotIn("not-reached", result.stdout)
+        self.assertIn("uv tarball", result.stderr)
+        self.assertIn("https://example.invalid/uv.tar.gz", result.stderr)
+        self.assertIn("curl exit 22", result.stderr)
+
     def test_transient_curl_failures_are_retried_by_fetch(self) -> None:
         """DNS (6) and connect (7) failures retry inside fetch, not abort."""
         for status in (6, 7):
             with self.subTest(status=status):
-                # Fail twice, then write the installer to the -o target.
+                # Fail twice, then write the file to the -o target.
                 body = (
                     f'n=$(wc -l < "$(dirname "$0")/calls")\n'
                     f"if [ $n -le 2 ]; then echo 'curl: ({status})' >&2; exit {status}; fi\n"
                     'while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
                     'echo script > "$out"\n'
                 )
-                result, calls = self.run_download(body)
+                result, calls = self.run_fetch(body)
+                self.assertIn("not-reached", result.stdout)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(calls, 3)
-                self.assertIn("installed: script", result.stdout)
 
     def test_persistent_curl_failure_gives_up_after_bounded_retries(self) -> None:
-        """A DNS failure that never clears aborts after 4 tries, naming the installer."""
-        result, calls = self.run_download("exit 6")
+        """A DNS failure that never clears aborts after 4 tries, naming the download."""
+        result, calls = self.run_fetch("exit 6")
         self.assertEqual(result.returncode, 6, result.stderr)
         self.assertEqual(calls, 4)
-        self.assertIn("uv installer", result.stderr)
+        self.assertIn("uv tarball", result.stderr)
 
-    def test_empty_installer_download_fails(self) -> None:
-        """A download that leaves an empty file fails instead of installing nothing."""
-        body = 'while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n: > "$out"\n'
-        result, _ = self.run_download(body)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("installer is empty", result.stderr)
+    def run_fetch_checked(self, checksum_line: str) -> subprocess.CompletedProcess[str]:
+        """Run ``fetch_checked`` against a fake ``curl`` serving ``tool.tar.gz`` and ``checksum_line``."""
+        curl_body = (
+            'while [ $# -gt 0 ]; do case "$1" in -o) out=$2;; http*) url=$1;; esac; shift; done\n'
+            f'case "$url" in *.sha256) printf \'%s\\n\' \'{checksum_line}\' > "$out";; *) printf payload > "$out";; esac\n'
+        )
+        result, _ = self.run_bash(
+            ("tmp_path", "fetch", "fetch_checked"),
+            'tmp_path -d\nfetch_checked "https://example.invalid/tool.tar.gz" "$tmp_result"\necho verified\n',
+            curl_body,
+        )
+        return result
+
+    def test_fetch_checked_accepts_a_matching_checksum(self) -> None:
+        """The file is accepted when the published checksum for its own name matches."""
+        digest = hashlib.sha256(b"payload").hexdigest()
+        result = self.run_fetch_checked(f"{digest}  tool.tar.gz")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("verified", result.stdout)
+
+    def test_fetch_checked_rejects_a_wrong_or_missing_checksum(self) -> None:
+        """A mismatching checksum, or one listed for another name, aborts before anything is used."""
+        digest = hashlib.sha256(b"payload").hexdigest()
+        for line in (f"{'0' * 64}  tool.tar.gz", f"{digest}  other.tar.gz", ""):
+            with self.subTest(line=line):
+                result = self.run_fetch_checked(line)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("verified", result.stdout)
+
+    @staticmethod
+    def gpg_key(home: Path, name: str) -> tuple[str, bytes]:
+        """Create a throwaway signing key in ``home``; return its fingerprint and armored public key."""
+        env = {**os.environ, "GNUPGHOME": str(home)}
+        base = ["gpg", "--batch", "--quiet", "--pinentry-mode", "loopback", "--passphrase", ""]
+        subprocess.run(  # noqa: S603 -- fixed argv
+            [
+                *base,
+                "--quick-generate-key",
+                f"{name} <{name}@example.invalid>",
+                "ed25519",
+                "sign",
+                "never",
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        colons = subprocess.run(  # noqa: S603 -- fixed argv
+            ["gpg", "--batch", "--with-colons", "--list-keys", name],  # noqa: S607
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+        fpr = next(line.split(":")[9] for line in colons.splitlines() if line.startswith("fpr"))
+        armored = subprocess.run(  # noqa: S603 -- fixed argv
+            ["gpg", "--batch", "--armor", "--export", name],  # noqa: S607
+            env=env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        ).stdout
+        return fpr, armored
+
+    def run_install_claude(
+        self,
+        *,
+        pin: str = "good",
+        signer: str = "good",
+        manifest_version: str = "1.2.3",
+        manifest_checksum: str | None = None,
+        binary: bytes = b"claude-binary",
+    ) -> subprocess.CompletedProcess[str]:
+        """Run ``install_claude`` against a fake ``curl`` serving a key, a manifest signed by ``signer``, and ``binary``.
+
+        ``pin`` and ``signer`` pick which of two throwaway keys (``good``,
+        ``other``) is the pinned fingerprint and which signs the manifest;
+        the served key is always ``good``.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            homes = {}
+            for name in ("good", "other"):
+                homes[name] = root / f"gh-{name}"
+                homes[name].mkdir(mode=0o700)
+            try:
+                keys = {name: self.gpg_key(homes[name], name) for name in homes}
+                if manifest_checksum is None:
+                    manifest_checksum = hashlib.sha256(b"claude-binary").hexdigest()
+                manifest = json.dumps(
+                    {
+                        "version": manifest_version,
+                        "platforms": {"linux-x64": {"checksum": manifest_checksum}},
+                    }
+                )
+                served = root / "served"
+                served.mkdir()
+                (served / "key.asc").write_bytes(keys["good"][1])
+                (served / "manifest.json").write_text(manifest)
+                (served / "claude").write_bytes(binary)
+                subprocess.run(  # noqa: S603 -- fixed argv
+                    [
+                        "gpg",
+                        "--batch",
+                        "--quiet",
+                        "--local-user",
+                        keys[signer][0],
+                        "--detach-sign",
+                        "-o",
+                        str(served / "manifest.json.sig"),
+                        str(served / "manifest.json"),
+                    ],  # noqa: S607
+                    env={**os.environ, "GNUPGHOME": str(homes[signer])},
+                    check=True,
+                    capture_output=True,
+                    timeout=60,
+                )
+            finally:
+                for home in homes.values():
+                    subprocess.run(  # noqa: S603 -- fixed argv
+                        ["gpgconf", "--homedir", str(home), "--kill", "all"],  # noqa: S607
+                        check=False,
+                        capture_output=True,
+                        timeout=30,
+                    )
+            curl_body = (
+                'while [ $# -gt 0 ]; do case "$1" in -o) out=$2;; http*) url=$1;; esac; shift; done\n'
+                f'name="${{url##*/}}"; [ "$name" = claude-code.asc ] && name=key.asc\n'
+                f'cp "{served}/$name" "$out"\n'
+            )
+            result, _ = self.run_bash(
+                ("tmp_path", "fetch", "install_claude"),
+                f"claude_signing_fpr={keys[pin][0]}\n"
+                "claude_release_base=https://example.invalid/releases\n"
+                "claude_key_url=https://example.invalid/claude-code.asc\n"
+                "sudo() { echo SUDO-RAN; }\n"
+                'tmp_path -d\ninstall_claude 1.2.3 linux-x64 /cfg "$tmp_result"\n',
+                curl_body,
+            )
+        return result
+
+    @unittest.skipUnless(shutil.which("gpg") and shutil.which("jq"), "needs gpg and jq")
+    def test_install_claude_installs_a_verified_release(self) -> None:
+        """The control: a pinned key, a manifest it signed and a matching binary install."""
+        result = self.run_install_claude()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SUDO-RAN", result.stdout)
+
+    @unittest.skipUnless(shutil.which("gpg") and shutil.which("jq"), "needs gpg and jq")
+    def test_install_claude_fails_closed(self) -> None:
+        """Each broken link in the chain stops the install before the binary is run."""
+        digest = hashlib.sha256(b"claude-binary").hexdigest()
+        cases = {
+            "served key is not the pinned fingerprint": ({"pin": "other"}, "fingerprint"),
+            "manifest signed by another key": ({"signer": "other"}, "not signed by"),
+            "manifest is for another version": ({"manifest_version": "9.9.9"}, "expected 1.2.3"),
+            "manifest checksum is not hex": ({"manifest_checksum": "zz" * 32}, "no valid checksum"),
+            "manifest checksum is too short": (
+                {"manifest_checksum": digest[:40]},
+                "no valid checksum",
+            ),
+            "binary does not match the manifest": ({"binary": b"tampered"}, "FAILED"),
+        }
+        for label, (kwargs, message) in cases.items():
+            with self.subTest(label):
+                result = self.run_install_claude(**kwargs)  # type: ignore[arg-type]
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("SUDO-RAN", result.stdout)
+                self.assertIn(message, result.stderr + result.stdout)
+
+
+class ReleaseWorkflowGuardTest(unittest.TestCase):
+    """``release.yml`` runs only from the default branch."""
+
+    text = (SCRIPTS.parent / "workflows" / "release.yml").read_text()
+    guard = "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"
+
+    def job(self, name: str) -> str:
+        """Return the text of top-level job ``name``."""
+        found = re.search(
+            rf"^  {name}:\n(.*?)(?=^  [a-z][\w-]*:\n|\Z)", self.text, re.MULTILINE | re.DOTALL
+        )
+        self.assertIsNotNone(found, name)
+        return found.group(1)  # type: ignore[union-attr]
+
+    def test_version_job_fails_first_on_another_ref(self) -> None:
+        """The first step of the job every other job needs refuses a non-default ref."""
+        version = self.job("version")
+        first_step = version.split("steps:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("refs/heads/${{ github.event.repository.default_branch }}", first_step)
+        self.assertIn("exit 1", first_step)
+
+    def test_every_job_with_write_permissions_or_secrets_is_gated(self) -> None:
+        """Jobs holding ``contents: write``, ``packages: write``, ``id-token`` or secrets check the ref."""
+        for name in ("build", "release", "publish-packages"):
+            with self.subTest(job=name):
+                self.assertIn(self.guard, self.job(name))
+        # Nothing else gets write permissions or secrets without needing the version job.
+        for match in re.finditer(
+            r"^  ([a-z][\w-]*):\n", self.text.split("\njobs:\n", 1)[1], re.MULTILINE
+        ):
+            name = match.group(1)
+            if name != "version":
+                self.assertRegex(self.job(name), r"needs: ", name)
+
+    def test_privileged_jobs_declare_the_release_environment(self) -> None:
+        """Jobs with write permissions, an OIDC token or secrets run in ``release``, and no others."""
+        # Any write permission (including write-all), any OIDC token, and any
+        # reference to secrets other than GITHUB_TOKEN (dotted, bracketed,
+        # `secrets: inherit`, or the whole context).
+        privileged = re.compile(
+            r"[\w-]+: write\b|write-all|secrets\s*:\s*inherit"
+            r"|secrets\s*\[|secrets\s*\.\s*(?!GITHUB_TOKEN\b)"
+        )
+        names = re.findall(r"^  ([a-z][\w-]*):\n", self.text.split("\njobs:\n", 1)[1], re.MULTILINE)
+        found = []
+        for name in names:
+            # Comments mention these keys too; only the YAML itself counts.
+            body = "\n".join(
+                line for line in self.job(name).splitlines() if not line.lstrip().startswith("#")
+            )
+            has_env = re.search(r"^    environment: release$", body, re.MULTILINE) is not None
+            with self.subTest(job=name):
+                self.assertEqual(has_env, bool(privileged.search(body)))
+            if has_env:
+                found.append(name)
+        self.assertTrue(found, "no job declares environment: release")
+
+    def test_environment_is_a_plain_name_not_an_expression(self) -> None:
+        """A dispatcher-controlled expression could pick an unrestricted environment."""
+        matches = list(re.finditer(r"^[ \t]+environment:[ \t]*(.*)$", self.text, re.MULTILINE))
+        self.assertTrue(matches, "no environment: line found")
+        for match in matches:
+            self.assertEqual(match.group(1).strip(), "release")
+
+    def test_environment_is_documented_for_instances(self) -> None:
+        """The setup step and the allowed-secrets move are in the instance-facing docs."""
+        docs = SCRIPTS.parent.parent / "docs" / "TEMPLATE.md"
+        text = docs.read_text()
+        self.assertIn("Release environment", text)
+        self.assertIn("gh secret set NAME --env release", text)
+        readme = (SCRIPTS.parent / "workflows" / "README.md").read_text()
+        self.assertIn("environment: release", readme)
+
+    def test_release_is_created_at_the_dispatched_sha(self) -> None:
+        """The tag and release target ``github.sha``, the tip of the (default) branch dispatched."""
+        self.assertIn("TARGET_SHA: ${{ github.sha }}", self.text)
+        self.assertIn('--target "$TARGET_SHA"', self.text)
 
 
 if __name__ == "__main__":

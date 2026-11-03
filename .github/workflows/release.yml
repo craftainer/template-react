@@ -15,6 +15,24 @@
 # existing release). A GitHub release can therefore exist for a version whose
 # `publish-packages` failed: re-run the failed jobs to finish publishing, and
 # do not delete the release.
+#
+# Default branch only: any user with write access can dispatch this workflow
+# on any branch, and `build` runs that branch's Makefile with `contents:
+# write`, `packages: write` and the registry secrets. So the `version` job
+# fails unless the dispatched ref is the default branch, every job that
+# holds write permissions or secrets (`build`, `release`, `publish-packages`)
+# is also gated by the same condition itself, and the release is tagged at
+# `github.sha`, which for a dispatch on the default branch is its tip.
+# These guards stop an accidental dispatch from a feature branch, but they
+# are not a security boundary: GitHub runs this file from the dispatched
+# ref, so a writer can delete them on their own branch. The server-side
+# rule that holds against that is the `release` environment: `build`,
+# `release` and `publish-packages` declare `environment: release`, whose
+# deployment branches are limited to the default branch, and the registry
+# and npm secrets live in that environment (not at repository level), so
+# a run from another ref is refused the job and cannot read them. The
+# checks here stay as the fail-fast. Setup: docs/TEMPLATE.md, "Release
+# environment".
 name: Release
 
 on:
@@ -56,6 +74,17 @@ jobs:
       prerelease: ${{ steps.version.outputs.prerelease }}
       arches: ${{ steps.arches.outputs.arches }}
     steps:
+      # First step, before anything is checked out or run from the ref.
+      - name: Refuse to release from a non-default branch
+        env:
+          REF: ${{ github.ref }}
+          DEFAULT_REF: refs/heads/${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$REF" != "$DEFAULT_REF" ]; then
+            echo "::error::Release runs only from the default branch ($DEFAULT_REF); this run is on $REF."
+            exit 1
+          fi
+
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,6 +108,7 @@ jobs:
 
   build:
     needs: version
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     strategy:
       fail-fast: false
       matrix:
@@ -89,13 +119,12 @@ jobs:
     # is the separate `publish-packages` job below. `packages: write` lets
     # `make publish` push to this repository's own GHCR packages
     # (ghcr.io/<owner>/<repo>...) with `GITHUB_TOKEN` (actor
-    # `GITHUB_ACTOR`, a default Actions env var) when the OCI_REGISTRY_*
-    # secrets are unset and OCI_REGISTRY is ghcr.io (the Makefile's
-    # REGISTRY_CREDS; any other registry needs the secrets). The
+    # `GITHUB_ACTOR`) when the OCI_REGISTRY_* secrets are unset. The
     # `release` job has it too, for `make finalize`'s manifest lists.
     permissions:
       contents: write
       packages: write
+    environment: release
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || (vars.CI_RUNNER_AMD64 || 'ubuntu-24.04') }}
     env:
@@ -255,6 +284,7 @@ jobs:
 
   release:
     needs: [version, release-check]
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     # Two runs for the same tag (a double dispatch, or a re-run beside a
     # newer run) must not race on the draft deletion, finalize and release
     # creation below: the second waits and then sees the published release
@@ -270,6 +300,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+    environment: release
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     steps:
@@ -372,16 +403,17 @@ jobs:
   # secrets live in this job alone, and a job-level `if` on the
   # `*_PUBLISH` repository variables means an image-only instance never
   # starts it: it never requests an OIDC token and never has a package
-  # secret in an environment. (`vars` is allowed in `jobs.<id>.if`;
+  # secret in its process environment. (`vars` is allowed in `jobs.<id>.if`;
   # `secrets` is not, which is why the variables are the opt-in switch.)
   # The assembled `dist/` is downloaded first, so `make publish-packages`
   # uploads exactly what `make build` produced.
   publish-packages:
     needs: [version, release]
-    if: ${{ vars.PYPI_PUBLISH != '' || vars.NPM_PUBLISH != '' || vars.CARGO_PUBLISH != '' }}
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (vars.PYPI_PUBLISH != '' || vars.NPM_PUBLISH != '' || vars.CARGO_PUBLISH != '') }}
     permissions:
       contents: read
       id-token: write
+    environment: release
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     env:

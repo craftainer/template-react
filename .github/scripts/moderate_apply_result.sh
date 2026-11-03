@@ -8,6 +8,13 @@
 # moderate-bug-fix.yml / moderate-feature-build.yml.
 set -euo pipefail
 
+# shellcheck source=moderate_lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/moderate_lib.sh"
+
+# Needs, from the workflow's env: GH_TOKEN, GITHUB_REPOSITORY and
+# DEFAULT_BRANCH (github.event.repository.default_branch).
+: "${DEFAULT_BRANCH:?DEFAULT_BRANCH must be set}"
+
 result_dir="$1"
 branch_prefix="$2"    # "feature" or "bug"
 branch_suffix="$3"    # "plan" or "repro"
@@ -44,6 +51,11 @@ if ! [[ "$issue_number" =~ ^[0-9]+$ ]]; then
   echo "::error::issue_number in meta.json isn't numeric: $issue_number" >&2
   exit 1
 fi
+# The artifact must belong to the issue this run is for.
+if [ -n "${ISSUE_NUMBER:-}" ] && [ "$issue_number" != "$ISSUE_NUMBER" ]; then
+  echo "::error::issue_number in meta.json ($issue_number) is not this run's issue ($ISSUE_NUMBER)" >&2
+  exit 1
+fi
 
 # Re-adding the confirm label during a run queues a second run behind the
 # first (the workflow's concurrency group serializes them). If the ready
@@ -60,25 +72,41 @@ outcome="$(jq -r '.outcome' "$meta")"
 
 # Everything that can fail on a "built" result. Explicit `|| return 1`, not
 # errexit: the caller runs this in an `if !` condition, which suspends it.
+# Nothing from meta.json reaches git or gh unvalidated: base_sha must be a full
+# hex sha, the branch name is built from fixed parts plus a numeric issue
+# number, and every ref follows a `--`.
 apply_built() {
   local remote_sha pr_url
+  is_sha "$base_sha" || { echo "::error::base_sha is not a 40-character sha" >&2; return 1; }
+  if [ -f "$result_dir/patch.diff" ] && [ "$(wc -c < "$result_dir/patch.diff")" -gt "$MAX_PATCH_BYTES" ]; then
+    echo "::error::patch.diff is over $MAX_PATCH_BYTES bytes" >&2
+    return 1
+  fi
+
+  # The branch is bot-owned: triage's apply step creates `<prefix>/<n>-<suffix>`
+  # (the repro/plan branch this result builds on) and only the apply scripts
+  # write to it afterwards. The lease pins the tip read here, so a push by
+  # anyone in between still fails. base_sha must be that tip or an ancestor of
+  # it (an earlier attempt's commits sit on top); with no such branch it must
+  # be an ancestor of the default branch. A tip that does not descend from
+  # base_sha is foreign work: refuse.
+  remote_sha="$(git ls-remote -- origin "refs/heads/$branch" | cut -f1)" || return 1
+  if [ -n "$remote_sha" ]; then
+    is_sha "$remote_sha" || return 1
+    is_ancestor "$base_sha" "$remote_sha" || return 1
+  else
+    is_ancestor "$base_sha" "$DEFAULT_BRANCH" || return 1
+  fi
+
   git config user.name "claude-moderator[bot]" || return 1
   git config user.email "claude-moderator[bot]@users.noreply.github.com" || return 1
-  git fetch --depth=1 origin "$base_sha" || return 1
-  git checkout -B "$branch" FETCH_HEAD || return 1
-  git am "$result_dir/patch.diff" || return 1
-
-  # The branch is bot-owned: triage's Claude run creates `<prefix>/<n>-<suffix>`
-  # (the repro/plan branch this result builds on) and only this script writes
-  # to it afterwards. The lease pins the tip read here, so a push by anyone
-  # in between still fails. A tip other than base_sha must be a descendant of
-  # it (an earlier attempt's commits), otherwise it's foreign work: refuse.
-  remote_sha="$(git ls-remote origin "refs/heads/$branch" | cut -f1)" || return 1
-  if [ -n "$remote_sha" ] && [ "$remote_sha" != "$base_sha" ]; then
-    git fetch --depth=100 origin "$base_sha" "$remote_sha" || return 1
-    git merge-base --is-ancestor "$base_sha" "$remote_sha" || return 1
-  fi
-  git push --force-with-lease="$branch:$remote_sha" origin "$branch" || return 1
+  git fetch --depth=1 -- origin "$base_sha" || return 1
+  git checkout -B "$branch" FETCH_HEAD -- || return 1
+  git am -- "$result_dir/patch.diff" || return 1
+  # The applied commits, not the patch text, are what gets checked: renames,
+  # mode changes and binary files all show up in the diff.
+  check_result_tree "$base_sha" || return 1
+  git push --force-with-lease="$branch:$remote_sha" -- origin "$branch" || return 1
 
   pr_url="$(gh pr list --head "$branch" --state open --json number,url --jq '.[0].url // ""')" || return 1
   if [ -n "$pr_url" ]; then
@@ -86,7 +114,7 @@ apply_built() {
   else
     gh pr create --title "$subject" --body "$body
 
-$closes_verb #$issue_number" --base main --head "$branch" || return 1
+$closes_verb #$issue_number" --base "$DEFAULT_BRANCH" --head "$branch" || return 1
   fi
 
   # Only now that the PR exists does the stage move on.
@@ -96,8 +124,8 @@ $closes_verb #$issue_number" --base main --head "$branch" || return 1
 if [ "$outcome" = built ]; then
   base_sha="$(jq -r '.base_sha' "$meta")"
   branch="$branch_prefix/$issue_number-$branch_suffix"
-  subject="$(jq -r '.subject' "$meta")"
-  body="$(jq -r '.body' "$meta")"
+  subject="$(jq -r --argjson n "$MAX_TITLE_CHARS" '(.subject // "") | .[0:$n]' "$meta")"
+  body="$(jq -r --argjson n "$MAX_TEXT_CHARS" '(.body // "") | .[0:$n] | gsub("@"; "@\u200b")' "$meta")"
 
   if ! apply_built; then
     fail "Applying the automated result (patch, push, PR or relabel) failed."
@@ -105,7 +133,7 @@ if [ "$outcome" = built ]; then
 else
   # Not built: the stage stays at "ready" on purpose, so a maintainer's
   # retry (re-adding the confirm label) re-runs the build.
-  body="$(jq -r '.body' "$meta")"
+  body="$(jq -r --argjson n "$MAX_TEXT_CHARS" '(.body // "") | .[0:$n] | gsub("@"; "@\u200b")' "$meta")"
   gh issue edit "$issue_number" --add-label "needs-human" || true
   gh issue comment "$issue_number" --body "$body"
 fi

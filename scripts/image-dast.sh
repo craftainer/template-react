@@ -23,7 +23,9 @@
 #
 # ZAP joins the app container's network namespace (`--network container:`),
 # so it reaches the app on 127.0.0.1:PORT and nothing is exposed on the host
-# network. Reports go to dist/dast/ (report.html, report.json).
+# network. Reports go to dist/dast-<arch>-report.{html,json}: flat and
+# arch-qualified, because dist/ is merged across the arch legs and attached to
+# the release.
 #
 # Exit codes of zap-baseline.py (https://www.zaproxy.org/docs/docker/baseline-scan/):
 # 0 nothing found, 2 warnings only: both pass. 1 at least one rule at FAIL,
@@ -55,7 +57,12 @@ else
     done
 fi
 if [[ -z "$tar" ]]; then
-    echo "image-dast: no linux/$arch image tar in dist/${RELEASE_VERSION:+ for $RELEASE_VERSION}, skipping"
+    msg="image-dast: no linux/$arch image tar in dist/${RELEASE_VERSION:+ for $RELEASE_VERSION}, skipping"
+    echo "$msg"
+    if [[ "${CI:-}" == true ]]; then
+        echo "::warning title=image-dast skipped::$msg; nothing was scanned"
+        echo "$msg; nothing was scanned" >&2
+    fi
     exit 0
 fi
 
@@ -117,17 +124,20 @@ trap cleanup EXIT
 # shares the workspace but not this process's /tmp).
 echo "image-dast: loading $tar (linux/$arch)"
 tar_dir="$(cd "$(dirname "$tar")" && pwd)"
-work="$(mktemp -d "$tar_dir/.image-dast.XXXXXX")"
-# 0777: the container's user (ZAP runs as uid 1000) must be able to write
-# the reports here, also with rootless or userns-remapped Docker.
-chmod 0777 "$work"
+# Private (0700, or 0777 only under rootless/userns Docker; see skopeo-dir.sh)
+# while it holds the image tar.
+work="$(bash "$root/scripts/skopeo-dir.sh" "$tar_dir/.image-dast.XXXXXX")"
 image="image-dast-$RANDOM$RANDOM:dast"
 SKOPEO_DIST_DIR="$tar_dir" bash "$root/scripts/skopeo.sh" -- \
     --override-os linux --override-arch "$arch" \
     copy "oci-archive:/dist/$(basename "$tar")" \
-    "docker-archive:/dist/$(basename "$work")/image.tar:$image"
+    "docker-archive:/dist/$(basename "$work")/image.tar:$image" \
+    || { echo "error: skopeo failed; if this is a permission error, retry with SKOPEO_DIR_MODE=0777 (see scripts/skopeo-dir.sh)." >&2; exit 1; }
 docker load -i "$work/image.tar"
 rm -f "$work/image.tar"
+# 0777 from here on, with the image tar gone: ZAP runs as uid 1000, not the
+# caller, and must be able to write its reports (and read rules.tsv) here.
+chmod 0777 "$work"
 
 # ${run_args[@]+...}: an empty array is unbound under `set -u` on bash < 4.4.
 cid="$(docker run -d -p "127.0.0.1::${port}" ${run_args[@]+"${run_args[@]}"} "$image")"
@@ -172,13 +182,13 @@ docker run --rm --network "container:$cid" -v "$work:/zap/wrk:rw" "$zap" \
     zap-baseline.py "${zap_args[@]}" || zap_status=$?
 
 if [[ -f "$work/report.html" || -f "$work/report.json" ]]; then
-    rm -rf dist/dast
-    mkdir -p dist/dast
+    # Flat and arch-qualified: dist/ is merged across arch legs (assemble_dist.py
+    # rejects one path from two arches) and every file in it is a release asset.
     for f in report.html report.json; do
-        if [[ -f "$work/$f" ]]; then cp "$work/$f" "dist/dast/$f"; fi
+        if [[ -f "$work/$f" ]]; then cp "$work/$f" "dist/dast-$arch-$f"; fi
     done
 fi
-echo "image-dast: reports in dist/dast/"
+echo "image-dast: reports in dist/dast-$arch-report.{html,json}"
 
 case "$zap_status" in
     0) echo "image-dast: no findings" ;;
