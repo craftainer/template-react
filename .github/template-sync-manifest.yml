@@ -108,6 +108,7 @@ replace:
   - scripts/image-scan.sh
   - scripts/image-dast.sh
   - scripts/skopeo.sh
+  - scripts/skopeo-dir.sh
   - scripts/test-image-scripts.sh
 
   # template-react's own layer on top of docker's: the runtime image (an

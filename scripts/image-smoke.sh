@@ -82,18 +82,17 @@ trap cleanup EXIT
 : "${SKOPEO_IMAGE:?SKOPEO_IMAGE is required (set by the Makefile)}"
 echo "image-smoke: loading $tar (linux/$arch)"
 tar_dir="$(cd "$(dirname "$tar")" && pwd)"
-work="$(mktemp -d "$tar_dir/.image-smoke.XXXXXX")"
-# mktemp makes the directory 0700; with rootless or userns-remapped Docker
-# the container's user can't write into it. It only exists inside dist/, for
-# the length of this script.
-chmod 0777 "$work"
+# 0700 unless rootless or userns-remapped Docker needs 0777 for skopeo's user
+# (see skopeo-dir.sh). It only exists inside dist/, for the length of this script.
+work="$(bash "$(dirname "${BASH_SOURCE[0]}")/skopeo-dir.sh" "$tar_dir/.image-smoke.XXXXXX")"
 # Run (and later remove) a private reference, so cleanup never touches an
 # image that already existed.
 image="image-smoke-$RANDOM$RANDOM:smoke"
 SKOPEO_DIST_DIR="$tar_dir" bash "$(dirname "${BASH_SOURCE[0]}")/skopeo.sh" -- \
     --override-os linux --override-arch "$arch" \
     copy "oci-archive:/dist/$(basename "$tar")" \
-    "docker-archive:/dist/$(basename "$work")/image.tar:$image"
+    "docker-archive:/dist/$(basename "$work")/image.tar:$image" \
+    || { echo "error: skopeo failed; if this is a permission error, retry with SKOPEO_DIR_MODE=0777 (see scripts/skopeo-dir.sh)." >&2; exit 1; }
 docker load -i "$work/image.tar"
 
 # ${run_args[@]+...}: an empty array is unbound under `set -u` on bash < 4.4.
@@ -116,7 +115,7 @@ while ((SECONDS < deadline)); do
         echo "image-smoke: container exited before answering" >&2
         exit 1
     fi
-    if curl -fsS -o /dev/null "$url" 2>/dev/null; then
+    if curl -fsS --max-time 5 -o /dev/null "$url" 2>/dev/null; then
         echo "image-smoke: $url answered 2xx"
         exit 0
     fi

@@ -16,7 +16,7 @@
 
 -include image.mk
 
-.PHONY: repo-check release-arches build sbom release-assets publish publish-packages verify-published release-check finalize image-smoke check-arch
+.PHONY: repo-check release-arches build sbom release-assets publish publish-packages verify-published release-check finalize image-smoke image-scan image-dast check-arch
 .DEFAULT_GOAL := release-arches
 
 DOCKERFILE ?= Dockerfile
@@ -31,9 +31,14 @@ IMAGE_SMOKE_PORT ?= 8000
 IMAGE_SMOKE_PATH ?= /health/live
 IMAGE_SMOKE_RUN_ARGS ?=
 IMAGE_SMOKE_TIMEOUT ?= 60
+# image-scan: empty = blocking locally, advisory when CI=true; 1 blocks, 0 warns.
+IMAGE_SCAN_STRICT ?=
 
-# renovate: datasource=docker depName=anchore/syft
-SYFT_VERSION := v1.52.0
+# Pinned by tag and digest like SKOPEO_IMAGE; Renovate updates both together
+# (a customManager in .github/renovate.json). The SBOM tool runs as root with
+# dist/ (the image tar) mounted read-write, so a retagged image must not run.
+# Apache-2.0.
+SYFT_IMAGE := anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02
 
 # Pinned by tag and digest; Renovate updates both together. Apache-2.0. The
 # `-immutable` tag, not `vX.Y.Z`: quay.io rebuilds the plain tags daily and
@@ -71,7 +76,7 @@ OCI_NAME = $(shell printf '%s' '$(or $(OCI_IMAGE_NAME),$(REPO))' | tr '[:upper:]
 export OCI_DESCRIPTION
 export IMAGE_SMOKE_RUN_ARGS IMAGE_SMOKE_PORT IMAGE_SMOKE_PATH IMAGE_SMOKE_TIMEOUT RELEASE_VERSION
 export IMAGE_TAR_PREFIX = $(ASSET_PREFIX)
-export SKOPEO_IMAGE ARCHES
+export SKOPEO_IMAGE ARCHES IMAGE_SCAN_STRICT
 
 # Only set in CI, by crazy-max/ghaction-github-runtime in release.yml.
 ifdef ACTIONS_RUNTIME_TOKEN
@@ -117,11 +122,12 @@ build: check-arch repo-check
 	$(BUILD) --output type=oci,dest=$(ASSET).tar .
 
 sbom: check-arch repo-check
-	docker run --rm -v "$(CURDIR)/dist:/dist" anchore/syft:$(SYFT_VERSION) \
+	docker run --rm -v "$(CURDIR)/dist:/dist" $(SYFT_IMAGE) \
 		oci-archive:/$(ASSET).tar -o spdx-json=/$(ASSET).spdx.json
 
-# Each arch is smoke-tested here, natively on its own runner, before publish.
-release-assets: check-arch repo-check image-smoke
+# Each arch is smoke-tested, Trivy-scanned and ZAP-scanned here, natively on
+# its own runner, before publish.
+release-assets: check-arch repo-check image-smoke image-scan image-dast
 	test -f $(ASSET).tar && test -f $(ASSET).spdx.json
 
 # Registry credentials for publish and finalize, as shell that sets $user and
@@ -155,7 +161,7 @@ else
 	@$(REPO_GUARD)
 	@test -f $(ASSET).tar || { echo "$(ASSET).tar not found; run 'make build' first." >&2; exit 1; }
 	@$(REGISTRY_CREDS); \
-	auth="$$(mktemp -d)" && chmod 0777 "$$auth" && trap 'rm -rf "$$auth"' EXIT && \
+	auth="$$(bash scripts/skopeo-dir.sh)" && trap 'rm -rf "$$auth"' EXIT && \
 	printf '%s' "$$pass" | bash scripts/skopeo.sh -i -v "$$auth:/auth" -- \
 		login --authfile /auth/auth.json -u "$$user" --password-stdin "$(OCI_REGISTRY)" && \
 	bash scripts/skopeo.sh -v "$$auth:/auth:ro" -- \
@@ -191,6 +197,15 @@ verify-published:
 # image.mk's IMAGE_SMOKE_* values reach the script through the environment.
 image-smoke: repo-check
 	bash scripts/image-smoke.sh
+
+# Run by release-assets (so before publish) on the arch's tar in dist/. Trivy
+# is advisory (warning + job summary) unless IMAGE_SCAN_STRICT=1; ZAP follows
+# .zap/rules.tsv. Both need Docker and pull their pinned images by digest.
+image-scan:
+	bash scripts/image-scan.sh
+
+image-dast:
+	bash scripts/image-dast.sh
 
 # No recipe by design: image.mk adds steps as prerequisites, so Make never
 # sees two recipes for one target. Runs the host-arch smoke test again

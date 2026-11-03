@@ -5,7 +5,9 @@
   (features, mounts, editor settings).
 - `Dockerfile` — the devcontainer image (a single `develop` stage), built
   with the repo root as context; `Dockerfile.dockerignore` holds its
-  build-context excludes. The top-level `Dockerfile` is reserved for an
+  build-context excludes. Its `FROM` and `# syntax=` lines are pinned by
+  digest, written literally so Renovate can update tag and digest
+  together. The top-level `Dockerfile` is reserved for an
   instance's runtime image (`../docs/TEMPLATE.md`).
 - `compose.yml` — the dev service (`myapp`), built from `Dockerfile`'s
   `develop` stage. An instance that needs backing services

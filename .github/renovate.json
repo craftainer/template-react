@@ -9,11 +9,29 @@
     "labels": ["security"]
   },
   "osvVulnerabilityAlerts": true,
+  "internalChecksFilter": "strict",
   "packageRules": [
     {
       "matchUpdateTypes": ["patch", "minor"],
       "groupName": "patch and minor updates",
-      "automerge": true
+      "automerge": true,
+      "description": "Automerged updates wait 3 days after release (the age Renovate's own security:minimumReleaseAgeNpm preset uses), so a hijacked release is usually yanked or flagged before it lands in main. The top-level internalChecksFilter strict (the docs' recommendation with minimumReleaseAge) makes a still-pending version be skipped, not merged.",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "The python-version datasource has no release timestamps, so under the default minimumReleaseAgeBehaviour (timestamp-required) a Python patch would stay pending forever. It is raised without the age check and, since nothing vouches for its age, is not automerged.",
+      "matchDatasources": ["python-version"],
+      "matchDepNames": ["python"],
+      "groupName": "python patch",
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false
+    },
+    {
+      "description": "The github-runners datasource has no release timestamps either, so the 3 day age check would keep a runner image bump pending forever. Raised without the age check and not automerged.",
+      "matchDatasources": ["github-runners"],
+      "groupName": "runner images",
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false
     },
     {
       "matchUpdateTypes": ["major"],
@@ -100,6 +118,18 @@
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "quay.io/skopeo/stable"
+    },
+    {
+      "description": "The syft image pinned by tag and digest in the Makefile; Renovate updates both.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "SYFT_IMAGE := anchore/syft:(?<currentValue>v[0-9][^@\\s]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "anchore/syft"
     },
     {
       "description": "The hadolint image pinned in the hadolint hook.",

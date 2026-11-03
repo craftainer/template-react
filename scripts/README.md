@@ -7,14 +7,19 @@
   copying its shape into a second script. Prefer the hook below over
   either. Every download goes through its `fetch` helper (bounded curl
   retries with backoff; GitHub URLs authenticated when the optional
-  `github_token` BuildKit secret is present) and the installers
-  that download for themselves run through `retry` (the installer script
-  itself is fetched once, by `fetch`, so the two layers of retries do not
-  multiply; a failed download names the installer and URL before the script
-  aborts, an empty one is rejected, and `fetch` itself retries DNS and
+  `github_token` BuildKit secret is present) and the one tool that
+  downloads for itself (`uv python install`) runs through `retry` (never
+  around a `fetch`, so the two layers of retries do not multiply; a failed
+  download names what failed and the URL before the script aborts, and
+  `fetch` itself retries DNS and
   connect failures (curl exit 6/7) and truncated transfers (18/52/55/56) up
   to 4 times; timeouts are left to curl's own `--retry`), so CI's shared-IP
   HTTP 429s don't fail the image build. Local builds need no token.
+  No vendor install script is run: `uv` and `prek` are release tarballs
+  checked against the `.sha256` published beside them (`fetch_checked`),
+  and Claude Code's binary is checked against its GPG-signed
+  `manifest.json` (key fingerprint pinned in `claude_signing_fpr`); see
+  `../docs/TEMPLATE.md`'s "Supply chain and release hardening".
 - `post-create.sh` — the devcontainer's `postCreateCommand`: git
   `safe.directory`, `prek install`, then every `post-create.d/*.sh`.
 - `develop.d/`, `post-create.d/`, `runner-setup.d/` — instance hook
@@ -26,11 +31,14 @@
   `runner-setup.d/*.sh`. An instance whose runner image doesn't call it
   (an nginx runner, say) ignores it and `runner-setup.d/`.
 - `image-scan.sh` — the manual-stage `image-scan` hook: Trivy over the
-  tar for the current `RELEASE_VERSION`/arch in `dist/`.
+  tar for the current `RELEASE_VERSION`/arch in `dist/`. Findings block locally; with `CI=true` they are advisory
+  (`::warning::`, `$GITHUB_STEP_SUMMARY`, exit 0). `IMAGE_SCAN_STRICT=1|0` overrides. Also run by
+  `make release-assets` with `image-dast.sh`. With `CI=true`, a skip for lack
+  of a tar is a `::warning::`.
 - `image-dast.sh` — the manual-stage `image-dast` hook: starts the image from the
   tar in `dist/` as `image-smoke.sh` does and runs the pinned ZAP baseline scan
   (passive) in its network namespace, with rule levels from the
-  instance-owned `.zap/rules.tsv`; reports go to `dist/dast/`.
+  instance-owned `.zap/rules.tsv`; reports go to `dist/dast-<arch>-report.{html,json}`.
 - `test-image-scripts.sh` — the `image-scripts-test` hook: offline tests of
   the Makefile's repo derivation, the `publish`/`finalize` registry
   credentials (secrets, the ghcr.io `GITHUB_TOKEN` fallback, the non-ghcr
@@ -43,7 +51,18 @@
   test. Needs `SKOPEO_IMAGE`, which the Makefile exports; usage in the
   script's header.
 - `skopeo.sh` — runs the pinned skopeo image as the caller's user with
-  `dist/` mounted at `/dist`; used by `make publish` and `image-smoke.sh`.
+  `dist/` mounted at `/dist`; used by `make publish`, `image-smoke.sh` and
+  `image-dast.sh`.
+- `skopeo-dir.sh [TEMPLATE]` — prints a new temp directory skopeo's container
+  can write to: 0700 normally, 0777 only when `docker info` reports rootless
+  or userns-remapped Docker (the container's uid then isn't the owner). Used
+  for `make publish`'s authfile directory and the work directories of
+  `image-smoke.sh` and `image-dast.sh`. `image-dast.sh` widens its directory
+  to 0777 only after the image tar is gone, because ZAP runs as uid 1000.
+  `SKOPEO_DIR_MODE=0700|0777` overrides the detection (Docker Desktop, remote
+  daemons; anything else is an error). If skopeo fails with a permission
+  error on a 0700 directory, set `SKOPEO_DIR_MODE=0777`; `image-smoke.sh` and
+  `image-dast.sh` say so on failure.
 - `check-dockerfile-versions.sh ARG...` — fails when a named `ARG` default
   differs between `.devcontainer/Dockerfile` and the top-level `Dockerfile`.
 - `develop.d/10-corepack.sh` — enables pnpm via Corepack in the

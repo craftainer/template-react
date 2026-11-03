@@ -2,7 +2,7 @@
 # Offline tests for the template-owned image logic that has no other check:
 # the Makefile's repo derivation, check-dockerfile-versions.sh, image-smoke.sh's
 # missing-tar failure, skopeo.sh's argument handling and image-dast.sh's
-# skip, ZAP wiring and exit-code mapping. Needs no Docker daemon
+# skip, skopeo-dir.sh's mode, ZAP wiring and exit-code mapping. Needs no Docker daemon
 # (docker is stubbed) and writes only to a temp directory. Run by the
 # `image-scripts-test` hook.
 set -euo pipefail
@@ -114,6 +114,31 @@ out="$(sk -- copy a b)" || fail "skopeo.sh: no docker args should work"
 out="$(sk -i -- login)" || fail "skopeo.sh: docker args should work"
 [[ "$out" == *" -i img login" ]] || fail "skopeo.sh: unexpected command: $out"
 
+# skopeo-dir.sh: 0700 on a rootful daemon (or none reachable), 0777 only when
+# `docker info` reports rootless or userns.
+sd="$tmp/skdir"
+mkdir -p "$sd/bin"
+cat >"$sd/bin/docker" <<'EOF_STUB'
+#!/usr/bin/env bash
+[[ "$1" == info ]] || exit 1
+printf '%s' "${STUB_SECOPTS:-}"
+[[ "${STUB_SECOPTS:-}" != FAIL ]] || exit 1
+EOF_STUB
+chmod +x "$sd/bin/docker"
+skdir_mode() {
+    local d
+    d="$(PATH="$sd/bin:$PATH" TMPDIR="$sd" STUB_SECOPTS="$1" SKOPEO_DIR_MODE="${2:-}" bash "$root/scripts/skopeo-dir.sh" 2>/dev/null)" || { echo error; return; }
+    stat -c %a "$d"
+    rm -rf "$d"
+}
+expect_eq "skopeo-dir: rootful" 700 "$(skdir_mode 'name=seccomp,profile=builtin ')"
+expect_eq "skopeo-dir: no daemon" 700 "$(skdir_mode FAIL)"
+expect_eq "skopeo-dir: rootless" 777 "$(skdir_mode 'name=seccomp,profile=builtin name=rootless ')"
+expect_eq "skopeo-dir: userns" 777 "$(skdir_mode 'name=userns ')"
+expect_eq "skopeo-dir: override to 0777" 777 "$(skdir_mode '' 0777)"
+expect_eq "skopeo-dir: override to 0700 beats rootless" 700 "$(skdir_mode 'name=rootless ' 0700)"
+expect_eq "skopeo-dir: invalid override" error "$(skdir_mode '' 0755)"
+
 # Makefile publish/finalize credentials, with docker stubbed (it records its
 # argv and the stdin of any --password-stdin login): the OCI_REGISTRY_* secrets
 # win; with them unset ghcr.io falls back to GITHUB_ACTOR/GITHUB_TOKEN; any
@@ -165,6 +190,64 @@ for target in publish finalize; do
     [[ "$(creds_rc)" != 0 && "$out" == *OCI_REGISTRY_PASSWORD* ]] || fail "$target username without password should fail naming OCI_REGISTRY_PASSWORD (rc=$(creds_rc)): $out"
 done
 
+# image-scan.sh with docker stubbed (Trivy's exit code and output come from
+# the environment): findings (2) are advisory by default (a ::warning:: and a
+# job-summary entry, exit 0), IMAGE_SCAN_STRICT=1 makes them fail, a Trivy
+# error (1) always fails, and a skip is a loud warning only when CI=true.
+sc="$tmp/scan"
+mkdir -p "$sc/scripts" "$sc/dist" "$sc/bin"
+cp "$root/scripts/image-scan.sh" "$sc/scripts/"
+cat >"$sc/bin/docker" <<'EOF_STUB'
+#!/usr/bin/env bash
+echo "Total: 3 (HIGH: 3)"
+exit "${TRIVY_EXIT:-0}"
+EOF_STUB
+chmod +x "$sc/bin/docker"
+scan_env() { (cd "$sc" && env -u CI -u GITHUB_STEP_SUMMARY -u IMAGE_SCAN_STRICT PATH="$sc/bin:$PATH" "$@" bash scripts/image-scan.sh); }
+rc=0
+out="$(scan_env CI=true 2>"$sc/err")" || rc=$?
+expect_eq "image-scan: skip exit" 0 "$rc"
+[[ "$out" == *"::warning title=image-scan skipped"* && "$(cat "$sc/err")" == *"nothing was scanned"* ]] || fail "image-scan: CI skip should warn on stdout and stderr: $out"
+out="$(scan_env 2>&1)"
+[[ "$out" != *"::warning"* && "$out" == *skipping* ]] || fail "image-scan: a skip outside CI should not warn: $out"
+printf 'x' >"$sc/manifest.json"
+tar -cf "$sc/dist/app-1.0.0-$host.tar" -C "$sc" manifest.json
+rc=0
+out="$(scan_env TRIVY_EXIT=0 RELEASE_VERSION=1.0.0)" || rc=$?
+[[ "$rc" == 0 && "$out" != *"::warning"* ]] || fail "image-scan: clean scan should pass quietly (rc=$rc): $out"
+rc=0
+: >"$sc/summary"
+out="$(scan_env CI=true TRIVY_EXIT=2 RELEASE_VERSION=1.0.0 GITHUB_STEP_SUMMARY="$sc/summary")" || rc=$?
+[[ "$rc" == 0 && "$out" == *"::warning title=image-scan::"* ]] || fail "image-scan: findings in CI should warn and pass (rc=$rc): $out"
+[[ "$(cat "$sc/summary")" == *"Total: 3"* ]] || fail "image-scan: findings not in the step summary: $(cat "$sc/summary")"
+rc=0
+out="$(scan_env TRIVY_EXIT=2 RELEASE_VERSION=1.0.0 2>&1)" || rc=$?
+[[ "$rc" == 1 && "$out" != *"::warning"* ]] || fail "image-scan: findings locally should block without an annotation (rc=$rc): $out"
+rc=0
+out="$(scan_env TRIVY_EXIT=2 RELEASE_VERSION=1.0.0 IMAGE_SCAN_STRICT=0)" || rc=$?
+expect_eq "image-scan: local findings with IMAGE_SCAN_STRICT=0" 0 "$rc"
+rc=0
+out="$(scan_env CI=true TRIVY_EXIT=2 RELEASE_VERSION=1.0.0 IMAGE_SCAN_STRICT=1)" || rc=$?
+expect_eq "image-scan: CI findings with IMAGE_SCAN_STRICT=1" 1 "$rc"
+rc=0
+out="$(scan_env CI=true TRIVY_EXIT=1 RELEASE_VERSION=1.0.0)" || rc=$?
+expect_eq "image-scan: trivy error" 1 "$rc"
+
+# IMAGE_SCAN_STRICT reaches the scripts through make: from the environment and
+# from image.mk, and `release-assets` runs image-scan and image-dast.
+ms="$tmp/mkstrict"
+mkdir -p "$ms"
+printf 'show:\n\t@echo "[$$IMAGE_SCAN_STRICT]"\n' >"$ms/show.mk"
+out="$(cd "$ms" && env -u IMAGE_SCAN_STRICT GITHUB_REPOSITORY=o/r make -s -f "$root/Makefile" -f show.mk show)"
+expect_eq "make: IMAGE_SCAN_STRICT default" "[]" "$out"
+out="$(cd "$ms" && IMAGE_SCAN_STRICT=1 GITHUB_REPOSITORY=o/r make -s -f "$root/Makefile" -f show.mk show)"
+expect_eq "make: IMAGE_SCAN_STRICT from the environment" "[1]" "$out"
+printf 'IMAGE_SCAN_STRICT := 0\n' >"$ms/image.mk"
+out="$(cd "$ms" && env -u IMAGE_SCAN_STRICT GITHUB_REPOSITORY=o/r make -s -f "$root/Makefile" -f show.mk show)"
+expect_eq "make: IMAGE_SCAN_STRICT from image.mk" "[0]" "$out"
+out="$(cd "$ms" && GITHUB_REPOSITORY=o/r RELEASE_ARCH=amd64 RELEASE_VERSION=1.0.0 ARCHES=amd64 make -n -f "$root/Makefile" release-assets)"
+[[ "$out" == *"bash scripts/image-scan.sh"* && "$out" == *"bash scripts/image-dast.sh"* ]] || fail "make: release-assets should run image-scan and image-dast: $out"
+
 # image-dast.sh in a scratch copy of the repo (it works relative to its own
 # repo root), with docker and curl stubbed: skips without a tar, wires ZAP to
 # the app container's network and the rules file, and maps zap-baseline.py's
@@ -172,7 +255,7 @@ done
 dd="$tmp/dast"
 mkdir -p "$dd/scripts" "$dd/dist" "$dd/.zap" "$dd/bin"
 cp "$root/Makefile" "$dd/"
-cp "$root/scripts/image-dast.sh" "$root/scripts/skopeo.sh" "$dd/scripts/"
+cp "$root/scripts/image-dast.sh" "$root/scripts/skopeo.sh" "$root/scripts/skopeo-dir.sh" "$dd/scripts/"
 printf '# header\n10038\tFAIL\t(CSP)\n' >"$dd/.zap/rules.tsv"
 cat >"$dd/bin/docker" <<'EOF_STUB'
 #!/usr/bin/env bash
@@ -201,6 +284,9 @@ dast() {
 }
 out="$(dast env)" || fail "image-dast: no tar should skip: $out"
 [[ "$out" == *"skipping"* ]] || fail "image-dast: wrong skip message: $out"
+[[ "$out" != *"::warning"* ]] || fail "image-dast: a skip outside CI should not warn: $out"
+out="$(dast env CI=true)" || fail "image-dast: a CI skip should still pass"
+[[ "$out" == *"::warning title=image-dast skipped"* && "$out" == *$'\n'"image-dast: no linux"*"nothing was scanned" ]] || fail "image-dast: CI skip should warn on stdout and stderr: $out"
 touch "$dd/dist/app-1.0.0-$host.tar"
 for pair in 0:ok 2:ok 1:fail 3:fail; do
     : >"$dd/log"

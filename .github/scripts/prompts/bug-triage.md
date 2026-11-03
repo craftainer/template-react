@@ -18,19 +18,25 @@ actionable: do the steps plausibly lead from the expected to the actual
 behavior given how the code actually works? Is anything missing,
 ambiguous, or contradictory?
 
-Then do exactly one of the following three things. Always end with both a
-comment and a label -- never leave the issue untouched.
+This step cannot push, comment or label: it has a read-only token. A
+separate, privileged step does that afterwards from the result you leave
+behind. You leave it by writing `.moderation-out/triage.json` (the
+directory exists and is not part of the repository), valid JSON with
+exactly two string fields:
+
+    {"action": "needs-info" | "repro-ready" | "cannot-reproduce",
+     "comment": "<markdown for the issue comment>"}
+
+Escape newlines in `comment` as `\n`. Then do exactly one of the
+following three things. Always end with that file -- never leave the issue
+without a result.
 
 ## A. Missing or contradictory information
 
-- Comment with specific, concrete follow-up questions -- name exactly
-  what's missing or inconsistent, don't just ask for "more details":
-
-      gh issue comment "$GITHUB_ISSUE_NUMBER" --body "..."
-
-- Label it and stop. Do not create a branch or write any code:
-
-      gh issue edit "$GITHUB_ISSUE_NUMBER" --add-label "bug:needs-info"
+- Set `action` to `needs-info`. In `comment`, ask specific, concrete
+  follow-up questions -- name exactly what's missing or inconsistent,
+  don't just ask for "more details".
+- Do not create a branch or write any code.
 
 ## B. Actionable
 
@@ -38,34 +44,31 @@ comment and a label -- never leave the issue untouched.
   the current HEAD.
 - Write a failing test that reproduces the bug, and only that -- no fix.
   It must fail for the reason the report describes, not some unrelated
-  error (a typo, a missing fixture, a bad import).
+  error (a typo, a missing fixture, a bad import). Only add or change
+  files outside CI, devcontainer, hook and release configuration
+  (`.github/`, `.devcontainer/`, `.claude/`, `.pre-commit-config.yaml`,
+  Makefiles, `*.mk`, Dockerfiles, compose files, `scripts/release*`,
+  `scripts/develop.sh`): a result touching any of them is rejected.
 - Run the project's test command, scoped to the new test (see this
   repo's docs/TEMPLATE.md and its own instance-specific checks
-  documentation for how tests are normally run), and confirm it fails for
-  the expected reason. If a genuine, on-target failing test doesn't come
-  together after a reasonable attempt, fall back to case C instead of
-  committing a misleading or flaky test.
+  documentation for how tests are normally run). Hooks run with the
+  trusted configuration, never the repository's own:
+
+      prek run --config .moderation-tools/pre-commit-config.yaml --all-files
+
+  Confirm the new test fails for the expected reason. If a genuine,
+  on-target failing test doesn't come together after a reasonable
+  attempt, fall back to case C instead of committing a misleading or
+  flaky test.
 - Commit with a Conventional Commits message (e.g. `test: reproduce
-  bug in #<n>`) and push:
-
-      git push -u origin "bug/$GITHUB_ISSUE_NUMBER-repro"
-
-- Look up this repo's slug and comment a link to the branch's diff
-  against the default branch, plus a short summary of the failing test,
-  asking a maintainer to add the `bug:confirm` label once the reporter
-  has said this matches what they're seeing:
-
-      repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-      gh issue comment "$GITHUB_ISSUE_NUMBER" --body "... https://github.com/$repo/compare/main...bug/$GITHUB_ISSUE_NUMBER-repro ..."
-
-- Label it:
-
-      gh issue edit "$GITHUB_ISSUE_NUMBER" --add-label "bug:repro-ready"
+  bug in #<n>`). Do not push; there is no push access.
+- Set `action` to `repro-ready`. In `comment`, summarise the failing
+  test and ask a maintainer to add the `bug:confirm` label once the
+  reporter has said this matches what they're seeing. The link to the
+  branch is added for you.
 
 ## C. Can't reproduce after a genuine attempt
 
-- Comment explaining specifically what you tried and why it didn't
-  reproduce.
-- Label it and stop. Do not push a branch:
-
-      gh issue edit "$GITHUB_ISSUE_NUMBER" --add-label "needs-human"
+- Set `action` to `cannot-reproduce`. In `comment`, explain specifically
+  what you tried and why it didn't reproduce.
+- Do not commit anything.
