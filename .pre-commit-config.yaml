@@ -189,11 +189,7 @@ repos:
       # RUST_VERSION) to this entry.
       - id: check-dockerfile-versions
         name: check-dockerfile-versions (ARG defaults match across Dockerfiles)
-<<<<<<< /home/runner/work/template-react/template-react/.pre-commit-config.yaml
-        entry: bash scripts/check-dockerfile-versions.sh DEBIAN_VERSION NODE_VERSION
-=======
-        entry: bash scripts/check-dockerfile-versions.sh SSL_CERT_FILE SSL_CERT_DIR
->>>>>>> /tmp/template-new/.pre-commit-config.yaml
+        entry: bash scripts/check-dockerfile-versions.sh SSL_CERT_FILE SSL_CERT_DIR NODE_VERSION
         language: system
         # Also when the check itself, or this entry (the ARG list), changes.
         files: ^((\.devcontainer/)?Dockerfile|scripts/check-dockerfile-versions\.sh|\.pre-commit-config\.yaml)$
