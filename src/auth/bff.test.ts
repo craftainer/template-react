@@ -19,6 +19,7 @@ describe("safeReturnTo", () => {
   it.each([
     "https://evil.test/x",
     "//evil.test/x",
+    "/a/..//evil.test",
     "/\\evil.test",
     "javascript:alert(1)",
     "admin",

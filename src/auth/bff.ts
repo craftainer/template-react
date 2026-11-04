@@ -34,7 +34,9 @@ export function safeReturnTo(
   try {
     const parsed = new URL(value, origin);
     if (parsed.origin !== origin) return "/";
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    // `/a/..//evil.com` normalises to `//evil.com`, which is protocol-relative.
+    return /^\/[/\\]/.test(path) ? "/" : path;
   } catch {
     return "/";
   }
