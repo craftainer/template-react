@@ -1,38 +1,22 @@
-// The caller's Keycloak roles, read from the access token's claims (not
-// verified here: the backend verifies it on every request, this only decides
-// which buttons to offer). The manifest lists the roles each action needs
-// (`auth.write_roles`, `auth.delete_roles`).
-
-interface RoleClaims {
-  realm_access?: { roles?: unknown };
-  resource_access?: Record<string, { roles?: unknown } | undefined>;
-}
-
-const asRoles = (value: unknown): string[] =>
-  Array.isArray(value)
-    ? value.filter((role): role is string => typeof role === "string")
-    : [];
+// The caller's roles from `GET /bff/user`, for the UI only: they decide which
+// buttons to offer, authorization stays server-side. The manifest lists the
+// roles each action needs (`auth.write_roles`, `auth.delete_roles`).
+import type { BffUser } from "../auth/bff";
 
 /**
- * The realm roles and the client `clientId`'s roles in an access token, or
- * `null` when the token is not a readable JWT (the roles are then unknown).
+ * Every role the BFF reports, whichever realm or client it comes from, or
+ * `null` when there is no user (the roles are then unknown).
  */
-export function rolesFromToken(
-  token: string | undefined,
-  clientId: string,
+export function rolesFromUser(
+  user: Pick<BffUser, "roles"> | null | undefined,
 ): ReadonlySet<string> | null {
-  const payload = token?.split(".")[1];
-  if (!payload) return null;
-  try {
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const claims = JSON.parse(atob(base64)) as RoleClaims;
-    return new Set([
-      ...asRoles(claims.realm_access?.roles),
-      ...asRoles(claims.resource_access?.[clientId]?.roles),
-    ]);
-  } catch {
-    return null;
+  if (!user) return null;
+  const roles = new Set<string>();
+  for (const list of Object.values(user.roles ?? {})) {
+    if (!Array.isArray(list)) continue;
+    for (const role of list) if (typeof role === "string") roles.add(role);
   }
+  return roles;
 }
 
 /**

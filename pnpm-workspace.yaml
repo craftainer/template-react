@@ -1,3 +1,8 @@
+# The Vite app is the root package; bff/ is its Node server, a private
+# workspace member (see bff/README.md).
+packages:
+  - "."
+  - "bff"
 allowBuilds:
   # esbuild (pulled in by Storybook) ships its binary via per-platform optional
   # packages; its postinstall is only a fast-path optimisation.

@@ -6,6 +6,14 @@ Accepted
 
 Note (2026-10-26, LIC1): the project licence identifier is now `GPL-3.0-only`, not `GPL-3.0-or-later`; the `OCI_LICENSE` default and the `licenses` label follow it. The `GPL-3.0-or-later` mentions below record what was decided at the time.
 
+Note (2026-11, BF4/BF5a, ADR 0007): the runner is no longer nginx. It is
+`node:${NODE_VERSION}-${DEBIAN_VERSION}-slim` (digest-pinned, user `node`)
+running `bff/` on 8080, so the nginx base, `scripts/docker/` (nginx template and
+envsubst entrypoint) and `-e API_PROXY_TARGET` in `IMAGE_SMOKE_RUN_ARGS` are
+gone; the smoke test hits `/health/live`. The runner still does not use
+`runner-setup.sh`. The `IMAGE_SMOKE_*` table below records what was decided at
+the time.
+
 ## Context
 
 template-react was an instance of `template-base` that carried its own

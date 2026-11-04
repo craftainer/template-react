@@ -21,7 +21,7 @@ export interface AdminStub {
   readonly ifMatch: (string | null)[];
 }
 
-const API = "/api";
+const API = "/api/crud";
 const HEROES = `${API}/crud/v1/heroes/v2/json`;
 
 const json = (status: number, body: unknown, headers: HeadersInit = {}) =>
@@ -60,7 +60,7 @@ export function installAdminStub(options: AdminStubOptions = {}): AdminStub {
               anchor: url.origin,
               describedby: [
                 {
-                  href: "/api/_crud/manifest",
+                  href: "/api/_crud/manifest", // the backend's own path
                   type: "application/json",
                   profile:
                     "https://craftainer.github.io/schemas/crud-manifest/v1",

@@ -26,21 +26,17 @@ import {
   type ReadyResource,
   type UrlAdapter,
 } from "@craftainer/crud-views";
-import { useAuth } from "react-oidc-context";
+import { setDefaultResource } from "../analytics/defaultResource";
+import { useAuth } from "../auth/authContext";
 import { CrudApiProvider } from "../api/CrudApi";
 import { useCrudApi } from "../api/crudApiContext";
-import { mayDo, rolesFromToken } from "../api/roles";
+import { mayDo, rolesFromUser } from "../api/roles";
 import { etagGetter, latestResources, rowEtagGetter } from "../api/sdk";
 import { useUrlParams } from "./useUrlParams";
 
-/** The signed-in caller's roles from the access token, `null` when unreadable. */
+/** The signed-in caller's roles from `/bff/user`, `null` when unknown. */
 function useCallerRoles() {
-  const auth = useAuth();
-  // `settings` is the OIDC client's configuration (its `client_id` names the
-  // client whose roles count); a stubbed session has none.
-  const clientId = (auth.settings as { client_id?: string } | undefined)
-    ?.client_id;
-  return rolesFromToken(auth.user?.access_token, clientId ?? "");
+  return rolesFromUser(useAuth().user);
 }
 
 /**
@@ -104,12 +100,12 @@ interface AdminProps {
   readonly urlAdapter?: UrlAdapter | undefined;
 }
 
-/** The admin; signs the SDK client in with the OIDC session first. */
+/** The admin; builds the SDK client for the signed-in session first. */
 export function AdminPage({ urlAdapter }: AdminProps) {
   const auth = useAuth();
   return (
     // A new identity gets a new client, cache and manifest.
-    <CrudApiProvider key={auth.user?.profile.sub}>
+    <CrudApiProvider key={auth.user?.sub}>
       <Admin urlAdapter={urlAdapter} />
     </CrudApiProvider>
   );
@@ -119,6 +115,13 @@ function Admin({ urlAdapter }: AdminProps) {
   const { manifest } = useCrudApi();
   const resources = useMemo(() => latestResources(manifest), [manifest]);
   const { params, update } = useUrlParams(urlAdapter);
+
+  // Page views name the resource the URL leaves out (analytics/defaultResource).
+  const defaultName = resources[0]?.name;
+  useEffect(() => {
+    setDefaultResource(defaultName);
+    return () => setDefaultResource(undefined);
+  }, [defaultName]);
 
   if (resources.length === 0) {
     return (

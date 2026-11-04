@@ -4,6 +4,14 @@
 
 Accepted
 
+Note (2026-11, ADR 0007): the browser no longer holds an OIDC session. The
+token provider and `signinSilent()` in "Client wiring" are replaced by cookie
+sessions with the BFF (`credentials: "include"`, `X-CSRF: 1`, `cacheScope` from
+`/bff/user`'s `sub`), the `/api` prefix is the BFF's `/api/crud` upstream, and
+production no longer uses nginx (the "adds no such header" remark is moot; the
+BFF sets its own headers). The query-string navigation here is what ADR 0008's
+page views read.
+
 ## Context
 
 `HeroesPage` was written for one resource: it hardcoded the Hero columns and
@@ -105,11 +113,11 @@ Four facts about the libraries and the app shaped the wiring:
   `src/pages/AdminPage.test.tsx`). Stories cover the admin's states against a
   fake backend built from a captured real manifest
   (`src/pages/adminStub.ts`), so the real SDK and views run in them.
-  `tests/e2e/` runs one journey in a real browser against a running
-  template-fastapi and its Keycloak: sign in, create, conditional edit, a 412
-  after an out-of-band change, archive and the trash. It uses the same pinned
-  Playwright image as the visual suite, serving the built bundle with
-  `vite preview`.
+  `tests/e2e/` runs one journey in a real browser against the BFF
+  ([ADR 0007](0007-adopt-craftainer-bff.md)), which serves the built bundle in
+  front of a running template-fastapi and its Keycloak: sign in, create,
+  conditional edit, a 412 after an out-of-band change, archive and the trash.
+  It uses the same pinned Playwright image as the visual suite.
 - **Removed.** `HeroesPage`, `src/api/crud.ts` and the hand-written client
   tests. `src/api/heroes.ts` keeps only the `Hero` type, because
   `.storybook/stubs.tsx` (template-owned) imports it.
@@ -125,9 +133,10 @@ Four facts about the libraries and the app shaped the wiring:
 - The e2e journey covers inline edit (conditional save, and a refusal after
   an outside change); jsdom cannot render the DataGrid's rows, so the unit
   tests cover `rowEtagGetter` and the stories do not edit cells.
-- The e2e needs a running template-fastapi (MODE=dev, Postgres and Keycloak)
-  and Docker for the Playwright image; it is not part of `prek` and runs in the
-  verification lane (`tests/e2e/README.md`).
+- The e2e needs template-fastapi (MODE=dev, with Postgres and Keycloak), a
+  Valkey and Docker for the Playwright image; `tests/e2e/lane.sh` brings them up.
+  It is not part of `prek` and runs in the verification lane
+  (`tests/e2e/README.md`).
 - Without a router, a record or view is not a path (`/heroes/1`); links are
   query strings. Adding a router later means replacing `useUrlParams` and
   passing the router's adapter to the lists.

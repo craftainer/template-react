@@ -1,8 +1,10 @@
-// The CRUD SDK (@craftainer/crud-sdk) wired for this app: same-origin `/api`
-// prefix, bearer token from the OIDC session and the ETag-aware cache. The
+// The CRUD SDK (@craftainer/crud-sdk) wired for this app: the BFF's `/api/crud`
+// mount, the session cookie (no token in the browser), `X-CSRF` on every
+// request, a cache scoped by the signed-in `sub` and the ETag-aware cache. The
 // React side is src/api/CrudApi.tsx; see docs/adrs/0006-manifest-driven-admin.md.
 import {
   createClient,
+  type Middleware,
   findResource,
   type CrudClient,
   type Manifest,
@@ -14,14 +16,15 @@ import {
   tanstackCachePolicy,
   type Cache,
 } from "@craftainer/crud-sdk/cache";
+import { CSRF_HEADER, CSRF_VALUE } from "../auth/bff";
 
-/** The path prefix the dev server and nginx strip before proxying to the backend. */
-export const API_PREFIX = "/api";
+/** The BFF's mount of the `crud` upstream; it strips this before proxying to the backend. */
+export const API_PREFIX = "/api/crud";
 
 type Fetch = typeof fetch;
 
 /**
- * Moves a same-origin URL under `/api`. The manifest and the api-catalog
+ * Moves a same-origin URL under `/api/crud`. The manifest and the api-catalog
  * give backend paths (`/crud/...`, `/api/_crud/manifest`) that are only
  * reachable here through the proxy, so every one of them gets the prefix.
  */
@@ -31,7 +34,7 @@ function prefixed(url: string, origin: string): string {
   return `${origin}${API_PREFIX}${parsed.pathname}${parsed.search}`;
 }
 
-/** A `fetch` that sends every same-origin request through the `/api` proxy. */
+/** A `fetch` that sends every same-origin request through the BFF's `/api/crud`. */
 export function withApiPrefix(
   base: Fetch = (input, init) => globalThis.fetch(input, init),
   origin: string = window.location.origin,
@@ -60,10 +63,10 @@ export function withApiPrefix(
 }
 
 export interface CrudApiOptions {
-  /** The current access token; called per request (and with `refresh` after a 401). */
-  readonly getToken: (opts: {
-    readonly refresh: boolean;
-  }) => Promise<string | null | undefined> | string | null | undefined;
+  /** The signed-in user's `sub`: scopes the SDK cache and the query keys. */
+  readonly cacheScope?: string | undefined;
+  /** Runs on a final 401 (the session ended): navigate to login. */
+  readonly onUnauthorized?: (() => void | Promise<void>) | undefined;
   readonly fetch?: Fetch | undefined;
   readonly origin?: string | undefined;
 }
@@ -75,17 +78,35 @@ export interface CrudApi {
 }
 
 /**
+ * Adds `X-CSRF` to every request. It builds the next context from `ctx` so the
+ * SDK's `cacheScope` travels on (a fresh context would drop it and the cache
+ * would share entries between users).
+ */
+export const csrf: Middleware = (ctx, next) => {
+  const headers = new Headers(ctx.request.headers);
+  headers.set(CSRF_HEADER, CSRF_VALUE);
+  return next({ ...ctx, request: new Request(ctx.request, { headers }) });
+};
+
+/**
  * Builds the client, loads the caller's manifest, then adds the cache. The
  * cache copies its policies when it is created, so it can only be built once
  * the manifest names the resources; `client.use` puts it innermost, after the
- * token provider.
+ * CSRF middleware.
  */
 export async function createCrudApi(options: CrudApiOptions): Promise<CrudApi> {
   const origin = options.origin ?? window.location.origin;
   const client = createClient({
     baseUrl: origin,
-    tokenProvider: options.getToken,
     fetch: withApiPrefix(options.fetch, origin),
+    credentials: "include",
+    // `cacheScope` must be a non-empty string, so a missing `sub` leaves the
+    // SDK's own anonymous scope.
+    ...(options.cacheScope ? { cacheScope: options.cacheScope } : {}),
+    ...(options.onUnauthorized
+      ? { onUnauthorized: options.onUnauthorized }
+      : {}),
+    middleware: [csrf],
   });
   const manifest = await client.manifest();
   // TanStack Query owns freshness, so the SDK cache only revalidates by ETag.

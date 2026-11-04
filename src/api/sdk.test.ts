@@ -11,7 +11,7 @@ import {
 const ORIGIN = "https://app.test";
 
 describe("withApiPrefix", () => {
-  it("prefixes a Request and keeps its method, headers and body", async () => {
+  it("moves a Request under /api/crud and keeps its method, headers and body", async () => {
     const base = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response("{}"),
@@ -27,7 +27,7 @@ describe("withApiPrefix", () => {
     );
 
     const [url, init] = base.mock.calls[0];
-    expect(url).toBe(`${ORIGIN}/api/crud/v1/heroes/v2/json?id=3`);
+    expect(url).toBe(`${ORIGIN}/api/crud/crud/v1/heroes/v2/json?id=3`);
     expect(init?.method).toBe("PATCH");
     expect(new Headers(init?.headers).get("If-Match")).toBe('"e1"');
     expect(new TextDecoder().decode(init?.body as ArrayBuffer)).toBe(
@@ -45,7 +45,7 @@ describe("withApiPrefix", () => {
     await prefixed(new Request(`${ORIGIN}/api/_crud/manifest`));
 
     const [url, init] = base.mock.calls[0];
-    expect(url).toBe(`${ORIGIN}/api/api/_crud/manifest`);
+    expect(url).toBe(`${ORIGIN}/api/crud/api/_crud/manifest`);
     expect(init?.body).toBeUndefined();
   });
 
@@ -59,7 +59,9 @@ describe("withApiPrefix", () => {
     await prefixed("/.well-known/api-catalog");
     await prefixed("https://elsewhere.test/x");
 
-    expect(base.mock.calls[0][0]).toBe(`${ORIGIN}/api/.well-known/api-catalog`);
+    expect(base.mock.calls[0][0]).toBe(
+      `${ORIGIN}/api/crud/.well-known/api-catalog`,
+    );
     expect(base.mock.calls[1][0]).toBe("https://elsewhere.test/x");
   });
 });
@@ -75,7 +77,7 @@ function backend() {
         new Response(JSON.stringify(body), {
           headers: { "Content-Type": "application/json", ...headers },
         });
-      if (pathname === "/api/.well-known/api-catalog") {
+      if (pathname === "/api/crud/.well-known/api-catalog") {
         return json({
           linkset: [
             {
@@ -90,8 +92,9 @@ function backend() {
           ],
         });
       }
-      if (pathname === "/api/api/_crud/manifest") return json(manifestFixture);
-      if (pathname === "/api/crud/v1/heroes/v2/json") {
+      if (pathname === "/api/crud/api/_crud/manifest")
+        return json(manifestFixture);
+      if (pathname === "/api/crud/crud/v1/heroes/v2/json") {
         if (request.method === "PATCH") {
           patches.push(request.headers.get("If-Match"));
           return json({ ...recordFixtures[0] }, { ETag: '"after"' });
@@ -106,56 +109,67 @@ function backend() {
 }
 
 describe("createCrudApi", () => {
-  it("discovers the manifest through the /api proxy and sends the bearer token", async () => {
+  it("discovers the manifest through /api/crud with the session cookie and X-CSRF, never a token", async () => {
     const { fetchFake } = backend();
-    const getToken = vi.fn(() => "tok");
 
-    const api = await createCrudApi({
-      getToken,
-      fetch: fetchFake,
-      origin: ORIGIN,
-    });
+    const api = await createCrudApi({ fetch: fetchFake, origin: ORIGIN });
 
     expect(latestResources(api.manifest).map((r) => r.name)).toEqual([
       "heroes",
     ]);
-    const first = new Request(
-      fetchFake.mock.calls[0][0],
-      fetchFake.mock.calls[0][1],
-    );
-    expect(first.url).toBe(`${ORIGIN}/api/.well-known/api-catalog`);
-    expect(first.headers.get("Authorization")).toBe("Bearer tok");
+    const [input, init] = fetchFake.mock.calls[0];
+    const first = new Request(input, init);
+    expect(first.url).toBe(`${ORIGIN}/api/crud/.well-known/api-catalog`);
+    expect(first.headers.get("X-CSRF")).toBe("1");
+    expect(first.headers.has("Authorization")).toBe(false);
+    expect(first.credentials).toBe("include");
   });
 
-  it("sends the token over plain http to a loopback origin (the dev server)", async () => {
+  it("sends X-CSRF on every request, writes included", async () => {
     const { fetchFake } = backend();
+    const api = await createCrudApi({ fetch: fetchFake, origin: ORIGIN });
+    const heroes = await api.client.resource("heroes");
 
-    await createCrudApi({
-      getToken: () => "tok",
+    await heroes.get(1);
+    await heroes.update(1, { name: "Ada" });
+
+    for (const [input, init] of fetchFake.mock.calls) {
+      expect(new Request(input, init).headers.get("X-CSRF")).toBe("1");
+    }
+  });
+
+  it("scopes the cache and the query keys by the given sub", async () => {
+    const { fetchFake } = backend();
+    const a = await createCrudApi({
+      cacheScope: "u1",
       fetch: fetchFake,
-      origin: "http://localhost:5173",
+      origin: ORIGIN,
     });
+    const b = await createCrudApi({
+      cacheScope: "u2",
+      fetch: fetchFake,
+      origin: ORIGIN,
+    });
+    const anon = await createCrudApi({ fetch: fetchFake, origin: ORIGIN });
 
-    expect(fetchFake).toHaveBeenCalled();
+    expect(await a.client.scope()).not.toBe(await b.client.scope());
+    expect(await anon.client.scope()).toBe("anon");
+    expect(await a.client.scope()).not.toBe("anon");
   });
 
-  it("refuses to send the token over plain http to a non-loopback origin", async () => {
-    const { fetchFake } = backend();
+  it("runs onUnauthorized on a final 401", async () => {
+    const onUnauthorized = vi.fn();
+    const fetchFake = vi.fn(async () => new Response(null, { status: 401 }));
 
     await expect(
-      createCrudApi({
-        getToken: () => "tok",
-        fetch: fetchFake,
-        origin: "http://app.test",
-      }),
-    ).rejects.toThrow(/plain http/);
-    expect(fetchFake).not.toHaveBeenCalled();
+      createCrudApi({ fetch: fetchFake, origin: ORIGIN, onUnauthorized }),
+    ).rejects.toThrow();
+    expect(onUnauthorized).toHaveBeenCalled();
   });
 
   it("supplies the cached ETag of a record read, and the SDK sends it as If-Match", async () => {
     const { fetchFake, patches } = backend();
     const api = await createCrudApi({
-      getToken: () => "tok",
       fetch: fetchFake,
       origin: ORIGIN,
     });
@@ -175,7 +189,6 @@ describe("rowEtagGetter", () => {
   async function setup() {
     const { fetchFake } = backend();
     const api = await createCrudApi({
-      getToken: () => "tok",
       fetch: fetchFake,
       origin: ORIGIN,
     });

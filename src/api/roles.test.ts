@@ -1,21 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { mayDo, rolesFromToken } from "./roles";
+import { mayDo, rolesFromUser } from "./roles";
 
-const token = (claims: object) =>
-  `h.${btoa(JSON.stringify(claims)).replace(/\+/g, "-").replace(/\//g, "_")}.s`;
-
-describe("rolesFromToken", () => {
-  it("reads realm roles and the named client's roles", () => {
-    const roles = rolesFromToken(
-      token({
-        realm_access: { roles: ["offline_access"] },
-        resource_access: {
-          api: { roles: ["viewer", "editor"] },
-          other: { roles: ["admin"] },
-        },
-      }),
-      "api",
-    );
+describe("rolesFromUser", () => {
+  it("collects the roles of every realm or client the BFF reports", () => {
+    const roles = rolesFromUser({
+      roles: { realm: ["offline_access"], api: ["viewer", "editor"] },
+    });
 
     expect([...(roles ?? [])].sort()).toEqual([
       "editor",
@@ -24,13 +14,10 @@ describe("rolesFromToken", () => {
     ]);
   });
 
-  it("is null for a missing or malformed token, empty for one without roles", () => {
-    expect(rolesFromToken(undefined, "api")).toBeNull();
-    expect(rolesFromToken("not-a-jwt", "api")).toBeNull();
-    expect(rolesFromToken("a.%%%.c", "api")).toBeNull();
-    expect(
-      rolesFromToken(token({ resource_access: { api: {} } }), "api")?.size,
-    ).toBe(0);
+  it("is null without a user, empty for one without roles", () => {
+    expect(rolesFromUser(null)).toBeNull();
+    expect(rolesFromUser(undefined)).toBeNull();
+    expect(rolesFromUser({ roles: {} })?.size).toBe(0);
   });
 });
 

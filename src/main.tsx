@@ -1,16 +1,22 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { AuthProvider } from "react-oidc-context";
 import App from "./App.tsx";
-import { oidcConfig } from "./auth/config";
+import { AuthProvider } from "./auth/AuthProvider";
+import { loadRuntimeConfig, RuntimeConfigContext } from "./auth/config";
 import { ThemeProvider } from "./theme";
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <AuthProvider {...oidcConfig}>
-      <ThemeProvider>
-        <App />
-      </ThemeProvider>
-    </AuthProvider>
-  </StrictMode>,
-);
+const root = createRoot(document.getElementById("root")!);
+
+void loadRuntimeConfig().then((config) => {
+  root.render(
+    <StrictMode>
+      <RuntimeConfigContext.Provider value={config}>
+        <AuthProvider>
+          <ThemeProvider>
+            <App />
+          </ThemeProvider>
+        </AuthProvider>
+      </RuntimeConfigContext.Provider>
+    </StrictMode>,
+  );
+});

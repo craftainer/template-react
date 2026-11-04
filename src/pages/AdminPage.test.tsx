@@ -2,11 +2,13 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { memoryUrlAdapter } from "@craftainer/crud-views";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useDefaultResource } from "../analytics/defaultResource";
+import { PAGE_VIEW_EVENT, usePageViews } from "../analytics/pageViews";
 import { AdminPage } from "./AdminPage";
 import { installAdminStub } from "./adminStub";
 
 const { useAuthMock } = vi.hoisted(() => ({ useAuthMock: vi.fn() }));
-vi.mock("react-oidc-context", () => ({ useAuth: useAuthMock }));
+vi.mock("../auth/authContext", () => ({ useAuth: useAuthMock }));
 
 describe("AdminPage", () => {
   const realFetch = window.fetch;
@@ -14,7 +16,7 @@ describe("AdminPage", () => {
   beforeEach(() => {
     useAuthMock.mockReturnValue({
       isAuthenticated: true,
-      user: { access_token: "tok", profile: { sub: "u1" } },
+      user: { sub: "u1", name: "Ada", roles: { api: ["maintainer"] } },
     });
   });
   afterEach(() => {
@@ -37,6 +39,39 @@ describe("AdminPage", () => {
     expect(screen.getByRole("tab", { name: "Trash" })).toBeInTheDocument();
   });
 
+  it("publishes its default resource once: no render loop, no duplicate page view", async () => {
+    installAdminStub();
+    const adapter = memoryUrlAdapter("view=trash");
+    const send = vi.fn();
+    const published: (string | undefined)[] = [];
+    function Probe() {
+      usePageViews(adapter, () => "/", send);
+      published.push(useDefaultResource());
+      return null;
+    }
+
+    render(
+      <>
+        <Probe />
+        <AdminPage urlAdapter={adapter} />
+      </>,
+    );
+    await screen.findByRole("heading", { name: "Heroes" });
+    await new Promise((resolve) => setTimeout(resolve, 200)); // time to loop
+
+    // The store changed twice at most (unset, then "heroes"); every other
+    // render of the probe saw the same value.
+    const changes = published.filter(
+      (v, i) => i === 0 || v !== published[i - 1],
+    );
+    expect(changes).toEqual([undefined, "heroes"]);
+    expect(published.length).toBeLessThan(10);
+    expect(send.mock.calls.map((c) => [c[0], c[2]])).toEqual([
+      [PAGE_VIEW_EVENT, "/"],
+      [PAGE_VIEW_EVENT, "/heroes/trash"],
+    ]);
+  });
+
   it("says so when the caller can see no resource", async () => {
     installAdminStub({ manifest: "none" });
 
@@ -56,13 +91,10 @@ describe("AdminPage", () => {
   });
 
   it("offers Add record only to a caller whose roles may write", async () => {
-    const jwt = (roles: string[]) =>
-      `h.${btoa(JSON.stringify({ resource_access: { api: { roles } } }))}.s`;
     const signedInAs = (roles: string[]) =>
       useAuthMock.mockReturnValue({
         isAuthenticated: true,
-        settings: { client_id: "api" },
-        user: { access_token: jwt(roles), profile: { sub: "u1" } },
+        user: { sub: "u1", name: "Ada", roles: { api: roles } },
       });
 
     installAdminStub();
@@ -109,7 +141,7 @@ describe("AdminPage", () => {
     const stub = installAdminStub();
     const patch = (ifMatch: string) =>
       window.fetch(
-        `${window.location.origin}/api/crud/v1/heroes/v2/json?id=1`,
+        `${window.location.origin}/api/crud/crud/v1/heroes/v2/json?id=1`,
         {
           method: "PATCH",
           headers: { "If-Match": ifMatch, "Content-Type": "application/json" },
