@@ -12,6 +12,6 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@craftainer/bff": "0.1.0"
+    "@craftainer/bff": "0.2.0"
   }
 }

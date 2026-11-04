@@ -133,11 +133,11 @@ importers:
   .:
     dependencies:
       "@craftainer/crud-sdk":
-        specifier: 0.7.0
-        version: 0.7.0(@tanstack/query-core@5.104.5)
+        specifier: 0.8.0
+        version: 0.8.0(@tanstack/query-core@5.104.5)
       "@craftainer/crud-views":
         specifier: 0.5.1
-        version: 0.5.1(e73a0e164bfebe3c31f29ec740c43035)
+        version: 0.5.1(9c30cf1a117b8d1eee289a8e2cefdb89)
       "@emotion/cache":
         specifier: 11.14.0
         version: 11.14.0
@@ -236,8 +236,8 @@ importers:
   bff:
     dependencies:
       "@craftainer/bff":
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.2.0
+        version: 0.2.0
 
 packages:
   "@adobe/css-tools@4.5.0":
@@ -411,10 +411,10 @@ packages:
       }
     hasBin: true
 
-  "@craftainer/bff@0.1.0":
+  "@craftainer/bff@0.2.0":
     resolution:
       {
-        integrity: sha512-fVSZJ0ugKYyGJSOtAX8Kfgg0R+E8Ym1p6f/9sZzg8qqdvBv6BwGd3TKizJlWG8EwVgzGcEcBZDoVNz4KOQgEqw==,
+        integrity: sha512-i9aj4PEpkKmQ2J6Q2urt3E9Up8kYdaseU0+ed/Dt4GagWuBZReTQ9UccAalfP1Syqes4ZhXSXQZ/niJo0ltsvQ==,
       }
     engines: { node: ">=24.22.0" }
     peerDependencies:
@@ -423,10 +423,10 @@ packages:
       "@opentelemetry/api-logs":
         optional: true
 
-  "@craftainer/crud-sdk@0.7.0":
+  "@craftainer/crud-sdk@0.8.0":
     resolution:
       {
-        integrity: sha512-K2BQ0N+goByY+dirDDno59N3o4MDCmaF+yUwq/qtD+fMkH2CYcWZaz2+DJjUgBEvDIHAJHYh6EJ5xOHvvV304w==,
+        integrity: sha512-Lju6+pNHihTLh4eMWvcckKojQOzoUA1EZSw6Dv2K8rtFvUrTYjWjv8TW8tsng6UVzrVJAq7uUpuGZESgCKOm4w==,
       }
     engines: { node: ">=24.22.0" }
     hasBin: true
@@ -4532,7 +4532,7 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  "@craftainer/bff@0.1.0":
+  "@craftainer/bff@0.2.0":
     dependencies:
       "@fastify/cookie": 11.1.5
       "@fastify/formbody": 9.0.1
@@ -4548,13 +4548,13 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  "@craftainer/crud-sdk@0.7.0(@tanstack/query-core@5.104.5)":
+  "@craftainer/crud-sdk@0.8.0(@tanstack/query-core@5.104.5)":
     optionalDependencies:
       "@tanstack/query-core": 5.104.5
 
-  "@craftainer/crud-views@0.5.1(e73a0e164bfebe3c31f29ec740c43035)":
+  "@craftainer/crud-views@0.5.1(9c30cf1a117b8d1eee289a8e2cefdb89)":
     dependencies:
-      "@craftainer/crud-sdk": 0.7.0(@tanstack/query-core@5.104.5)
+      "@craftainer/crud-sdk": 0.8.0(@tanstack/query-core@5.104.5)
       "@emotion/react": 11.14.0(@types/react@19.2.18)(react@19.2.8)
       "@emotion/styled": 11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8)
       "@mui/material": 9.4.0(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
