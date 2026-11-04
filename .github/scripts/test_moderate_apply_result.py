@@ -280,7 +280,9 @@ class ApplyResultTest(unittest.TestCase):
                 (self.tmp / "log.txt").unlink(missing_ok=True)
                 proc = self.run_script(meta_extra={"base_sha": bad})
                 log = self.log()
-                self.assertFalse([c for c in log if c.startswith(("git fetch", "git am", "gh api"))])
+                self.assertFalse(
+                    [c for c in log if c.startswith(("git fetch", "git am", "gh api"))]
+                )
                 self.assert_failed_cleanly(proc, log)
 
     def test_denied_path_in_the_patch_is_never_pushed(self) -> None:
@@ -317,7 +319,13 @@ class ApplyResultTest(unittest.TestCase):
         """Source, tests and docs (also next to look-alike names) are accepted."""
         diff = "".join(
             f":100644 100644 a b M\\0{p}\\0"
-            for p in ("src/a.py", "tests/test_a.py", "docs/Makefile.md", "scripts/other.sh", ".githubx/y")
+            for p in (
+                "src/a.py",
+                "tests/test_a.py",
+                "docs/Makefile.md",
+                "scripts/other.sh",
+                ".githubx/y",
+            )
         )
         proc = self.run_script(run_env={"FAKE_DIFF": diff})
         self.assertEqual(proc.returncode, 0, proc.stderr)

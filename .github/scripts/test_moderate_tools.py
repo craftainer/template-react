@@ -270,7 +270,9 @@ class RunClaudeTest(unittest.TestCase):
         self.assertIn("KEY:sk-test", lines)
         self.assertIn("SCRUB:1", lines)
         self.assertIn("AUTHOR:claude-moderator[bot]", lines)
-        self.assertEqual(lines[lines.index("ARG:--allowedTools") + 1], "ARG:Read,Grep,Bash(uv run pytest *)")
+        self.assertEqual(
+            lines[lines.index("ARG:--allowedTools") + 1], "ARG:Read,Grep,Bash(uv run pytest *)"
+        )
         settings = json.loads(lines[lines.index("ARG:--settings") + 1].removeprefix("ARG:"))
         self.assertIn("Read(//proc/**)", settings["permissions"]["deny"])
         sandbox = settings["sandbox"]
@@ -281,14 +283,18 @@ class RunClaudeTest(unittest.TestCase):
         self.assertNotIn("enableWeakerNestedSandbox", sandbox)
         self.assertEqual(sandbox["network"]["allowedDomains"], ["github.com", "api.github.com"])
         self.assertIs(sandbox["network"]["strictAllowlist"], True)
-        self.assertIn({"name": "ANTHROPIC_API_KEY", "mode": "deny"}, sandbox["credentials"]["envVars"])
+        self.assertIn(
+            {"name": "ANTHROPIC_API_KEY", "mode": "deny"}, sandbox["credentials"]["envVars"]
+        )
         self.assertEqual(lines[lines.index("ARG:-p") + 1], "ARG:do the thing")
 
     def test_missing_or_bad_domains_fail_before_claude_runs(self) -> None:
         """No network allow-list, or a malformed host, means claude never starts."""
         for domains in ("", ",", 'x.com","evil', "a b"):
             with self.subTest(domains=domains):
-                proc = self.launch({"ANTHROPIC_API_KEY": "k", "MODERATION_ALLOWED_DOMAINS": domains})
+                proc = self.launch(
+                    {"ANTHROPIC_API_KEY": "k", "MODERATION_ALLOWED_DOMAINS": domains}
+                )
                 self.assertEqual(proc.returncode, 1)
                 self.assertFalse(self.out.exists())
 

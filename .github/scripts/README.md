@@ -89,6 +89,12 @@
   that label the test fails until you look up the new image's `python3`
   (actions/runner-images) and update `RUNNER_IMAGE_PYTHON`, `RUNNER_PYTHON` and
   `ruff.toml` together.
+- Formatting: base has no ruff dependency of its own, so `ruff-check`/`ruff-format`
+  from `astral-sh/ruff-pre-commit` in `../../.pre-commit-config.yaml`, scoped
+  to `^\.github/scripts/.*\.py$`, keep these scripts formatted to `ruff.toml`.
+  Unformatted scripts would otherwise fail every Python instance's own
+  `ruff format` hook after a sync. Keep that hook's `rev` equal to the ruff
+  the Python templates pin.
 - `test_moderate_labels.py` — checks that every `create "<name>" "<color>"
   "<description>"` line in `../workflows/moderate-setup.yml` has a description
   of at most 100 characters (GitHub answers HTTP 422 to a longer one, and only

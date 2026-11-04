@@ -150,6 +150,7 @@ ignore:
   # Each instance chooses its own license and copyright holder.
   - LICENSE
 
+<<<<<<< /home/runner/work/template-react/template-react/.github/template-sync-manifest.yml
   # Derived from package.json, which is merge-tier -- a 3-way merge of a
   # lock file is unreliable, so an instance regenerates it locally with
   # `pnpm install` after a sync PR changes package.json.
@@ -173,6 +174,18 @@ ignore:
 
   # Env-var documentation for the instance's own deployment.
   - .env.example
+=======
+  # Each instance's README is entirely its own (image, usage, runtime); a
+  # merge against this template's README conflicted on every sync, so it
+  # is instance-owned from creation, like the Dockerfile.
+  - README.md
+
+  # The instance's own image: its Dockerfile (toolchain, build, runtime
+  # stages) and the image.mk variables that tune the template's Makefile.
+  # The skeletons shipped here are examples to replace, never synced.
+  - Dockerfile
+  - image.mk
+>>>>>>> /tmp/template-new/.github/template-sync-manifest.yml
 
   # The instance's ZAP baseline rule levels (seeded with a commented header;
   # an instance adds its own FAIL/IGNORE lines, with a reason each).
@@ -203,6 +216,7 @@ ignore:
   - .github/template-sync-manifest.local.yml
 
 merge:
+<<<<<<< /home/runner/work/template-react/template-react/.github/template-sync-manifest.yml
   # Project identity (name/description/version) is interpolated per
   # instance; everything else in these two files is template-owned.
   - README.md
@@ -213,6 +227,8 @@ merge:
   # tests); an instance adds its own on top.
   - image.mk
 
+=======
+>>>>>>> /tmp/template-new/.github/template-sync-manifest.yml
   # Baseline excludes the instance extends with its own entries.
   - .dockerignore
 
