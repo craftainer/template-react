@@ -120,7 +120,7 @@ test.describe("sign-in and the session cookie", () => {
     expect(headers["referrer-policy"]).toBeTruthy();
     expect(headers["cross-origin-opener-policy"]).toBeTruthy();
     expect(headers["access-control-allow-origin"]).toBeUndefined(); // no CORS
-    expect(headers["cache-control"]).toBe("no-cache"); // index.html revalidates
+    expect(headers["cache-control"]).toBe("no-store"); // index.html carries a per-request CSP nonce, so it must not be cached
   });
 
   test("an unknown page falls back to the SPA, an unknown API path does not", async ({
