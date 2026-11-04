@@ -180,6 +180,11 @@ ignore:
   # Env-var documentation for the instance's own deployment.
   - .env.example
 
+  # Each instance's README is entirely its own (image, usage, runtime); a
+  # merge against this template's README conflicted on every sync, so it
+  # is instance-owned from creation, like the Dockerfile.
+  - README.md
+
   # The instance's ZAP baseline rule levels (seeded with a commented header;
   # an instance adds its own FAIL/IGNORE lines, with a reason each).
   - .zap/rules.tsv
@@ -211,7 +216,6 @@ ignore:
 merge:
   # Project identity (name/description/version) is interpolated per
   # instance; everything else in these two files is template-owned.
-  - README.md
   - package.json
   - pnpm-workspace.yaml
 

@@ -23,6 +23,8 @@ line-length = 100
 
 [lint]
 # Ruff's long-standing defaults, spelled out so a newer ruff that widens
-# its default rule set does not start flagging these scripts. Base itself
-# does not run ruff; this keeps `ruff check` quiet in every checkout.
+# its default rule set does not start flagging these scripts. Base runs
+# ruff on this directory only through the ruff-pre-commit hook in
+# ../../.pre-commit-config.yaml; this keeps `ruff check` quiet in every
+# checkout.
 select = ["E4", "E7", "E9", "F"]
