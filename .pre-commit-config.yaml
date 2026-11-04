@@ -59,12 +59,6 @@ repos:
       - id: conventional-pre-commit
         stages: [commit-msg]
 
-<<<<<<< /home/runner/work/template-react/template-react/.pre-commit-config.yaml
-  # oxlint, prettier, tsc and vitest are already project dev-dependencies
-  # (see package.json) — running them via `pnpm` keeps their pinned
-  # versions as the single source of truth instead of a second, separate
-  # pin per tool in this file.
-=======
   # Guard for the upstream-owned scripts in .github/scripts/: base ships
   # them to every instance, whose own ruff-format hook then checks them
   # against .github/scripts/ruff.toml (the closest config wins), so an
@@ -84,7 +78,10 @@ repos:
         files: ^\.github/scripts/.*\.py$
         stages: [pre-commit, manual]
 
->>>>>>> /tmp/template-new/.pre-commit-config.yaml
+  # oxlint, prettier, tsc and vitest are already project dev-dependencies
+  # (see package.json) — running them via `pnpm` keeps their pinned
+  # versions as the single source of truth instead of a second, separate
+  # pin per tool in this file.
   - repo: local
     hooks:
       - id: oxlint
