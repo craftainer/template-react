@@ -62,7 +62,9 @@
   `has_make_target.sh` runs no recipe, but make still evaluates
   `$(shell ...)` and `include` while parsing the Makefile.
   `test_release_scripts.py` tests both, `verify_release_tag.sh`, and that
-  `../../scripts/develop.sh` never nests `fetch` inside `retry`;
+  `../../scripts/develop.sh` never nests `fetch` inside `retry`, verifies
+  downloads with `fetch_checked`/`install_claude`, and runs no installer script, and
+  that `release.yml` gates its privileged jobs on the default branch;
   `scripts-tests` runs it. Keep
   `assemble_dist.py` clean under `ruff check --select ALL` (bar `COM812` and
   `CPY001`), so instances that select `PL` etc. need no per-file ignores.
@@ -87,6 +89,10 @@
   that label the test fails until you look up the new image's `python3`
   (actions/runner-images) and update `RUNNER_IMAGE_PYTHON`, `RUNNER_PYTHON` and
   `ruff.toml` together.
+- `test_moderate_labels.py` — checks that every `create "<name>" "<color>"
+  "<description>"` line in `../workflows/moderate-setup.yml` has a description
+  of at most 100 characters (GitHub answers HTTP 422 to a longer one, and only
+  the manually dispatched workflow would ever show it); `scripts-tests` runs it.
 - `verify_release_tag.sh` — the `release` job's check that an already
   published release's tag points at the commit the run built (fails closed;
   retries only transient lookup errors, six attempts over about two
@@ -98,30 +104,53 @@
   read-after-write lag for refs, so the error says to re-run once the tag is
   visible. Tested against a fake `gh` in
   `test_release_scripts.py`.
-- `find_moderation_result.sh` / `test_moderation_scripts.py` — the check
-  step shared by `../workflows/moderate-bug-fix-apply.yml` and
-  `../workflows/moderate-feature-build-apply.yml`: asks the API for the
-  `moderation-result` artifact by name (so it is found however many
-  artifacts the run has) and writes `found=true|false`. It fails on an
-  expired artifact (a produced result that can no longer be applied; the
-  message says to re-run the worker run, since re-running the apply run
-  cannot bring the artifact back), an
-  API error, and an empty or unrecognised response. The tests run it
-  against a fake `gh`.
 - `run_claude.sh` — invokes `claude -p` for one issue-moderation stage
   inside the devcontainer; shared by all four Claude-invoking
-  `../workflows/moderate-*.yml` jobs. See `../workflows/README.md`'s
-  "Issue moderation" section.
+  `../workflows/moderate-*.yml` jobs. Takes the API key from its
+  environment only (never a file), scrubs it from Claude's subprocesses,
+  appends `MODERATION_EXTRA_TOOLS` and passes inline deny rules. The
+  workflows run the trusted copy installed at `.moderation-tools/` by
+  `moderate_prepare.sh`, never the one in the tree Claude edits. See
+  `../workflows/README.md`'s "Issue moderation" section and
+  `https://github.com/craftainer/template-base/blob/main/docs/adrs/0001-harden-the-issue-moderation-workflows.md`.
+- `moderate_lib.sh` — sourced by the moderation scripts below: `is_sha`,
+  `is_ancestor` (compare API), `check_result_tree` (the commits a patch
+  produced against the path allow-list and no symlink or submodule),
+  `agent_file` (a result file must be a regular file really under
+  `.moderation-out/`) and the size caps.
+- `moderate_check_paths.sh` — the path allow-list: reads NUL-separated
+  paths on stdin and fails on any under `.github/`, `.devcontainer/`,
+  `.claude/`, a `Makefile`/`*.mk`, `Dockerfile*`, `compose*.y*ml`/`docker-compose*.y*ml`,
+  `.pre-commit-config.yaml`, `scripts/release*` and the other files that
+  decide what runs with credentials.
+- `moderate_prepare.sh` / `moderate_verify_branch.sh` — run on the runner
+  from a snapshot of the default branch before Claude starts: install the
+  trusted launcher, prompts and hook config, and refuse a repro/plan
+  branch that differs from the default branch in a denied path.
+- `moderate_package_result.sh` — the Claude job's last step: reads the
+  agent's commits through a fresh bare repository and its note or triage
+  file only if a regular file under `.moderation-out/`, and writes
+  `meta.json` and `patch.diff` for the `apply` job.
+- `moderate_apply_result.sh` / `moderate_apply_triage.sh` — the `apply`
+  jobs' scripts (fix/build, and triage): validate the artifact, then push,
+  open the PR or comment, and label. The only scripts that write; they
+  never run Claude or anything from the artifact.
+- `test_moderate_apply_result.py` / `test_moderate_apply_triage.py` /
+  `test_moderate_tools.py` — fake-`gh`/`git` tests of the two apply scripts
+  (argument order, validation, the allow-list, failure paths), and tests of
+  the allow-list, the packager (real git, symlinks, rewritten history) and
+  the launcher; `scripts-tests` runs them.
 - `moderate_cleanup.sh` — closes any open PR for a moderation branch and
   deletes the branch; used by `../workflows/moderate-cleanup.yml` (issue
   closed) and `reset_issue_state.sh` (issue reopened). Idempotent.
 - `reset_issue_state.sh` — strips stage labels back to the bare
   `bug`/`enhancement` label and reconciles any leftover branch/PR, on
-  issue reopen; used by `../workflows/moderate-bug-triage.yml` and
+  issue reopen; used by the `apply` jobs of
+  `../workflows/moderate-bug-triage.yml` and
   `../workflows/moderate-feature-triage.yml`.
 - `prompts/` — the Claude prompt for each moderation stage
   (`bug-triage.md`, `bug-fix.md`, `feature-triage.md`,
-  `feature-build.md`), read by `run_claude.sh`.
+  `feature-build.md`), read by `run_claude.sh` from `.moderation-tools/`.
 
 ## Do
 

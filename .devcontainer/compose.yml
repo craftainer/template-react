@@ -30,6 +30,13 @@ services:
       # adds one.
       - claude-config:/home/vscode/.claude
       - gh-config:/home/vscode/.config/gh
+    environment:
+      # Keeps all Claude Code state, .claude.json included, in the
+      # claude-config volume. Must match its mount path above and the
+      # paths in scripts/develop.sh; see .devcontainer/README.md's "Do".
+      # Set here rather than in devcontainer.json's remoteEnv so every
+      # process in the container sees it, not just VS Code's.
+      CLAUDE_CONFIG_DIR: /home/vscode/.claude
     command: sleep infinity
     # No ports: mapping and no networks: block — see .devcontainer/
     # README.md's "Don't". An instance that needs host access adds
@@ -39,9 +46,10 @@ services:
 
 volumes:
   # Persists Claude Code CLI session/credential state across container
-  # rebuilds. A small amount of session-state data, not a language
-  # runtime's dependency tree, so the DLP/malware-scanning concern above
-  # doesn't apply the same way here.
+  # rebuilds, .claude.json included (see CLAUDE_CONFIG_DIR above). A
+  # small amount of session-state data, not a language runtime's
+  # dependency tree, so the DLP/malware-scanning concern above doesn't
+  # apply the same way here.
   claude-config:
   # Persists the GitHub CLI's login (`gh auth login`) across rebuilds, for
   # the same reason.

@@ -31,19 +31,32 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Checkout doesn't persist credentials; git push/fetch use gh's
+      # credential helper, fed by GH_TOKEN.
+      - name: Configure git credentials
+        run: gh auth setup-git
 
       - name: Determine moderation branch name
         id: branch
+        env:
+          IS_BUG: ${{ contains(github.event.issue.labels.*.name, 'bug') }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          if [ "${{ contains(github.event.issue.labels.*.name, 'bug') }}" = "true" ]; then
-            echo "name=bug/${{ github.event.issue.number }}-repro" >> "$GITHUB_OUTPUT"
+          if [ "$IS_BUG" = "true" ]; then
+            echo "name=bug/$ISSUE_NUMBER-repro" >> "$GITHUB_OUTPUT"
           else
-            echo "name=feature/${{ github.event.issue.number }}-plan" >> "$GITHUB_OUTPUT"
+            echo "name=feature/$ISSUE_NUMBER-plan" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Reconcile PR/branch state for the closed issue
+        env:
+          BRANCH_NAME: ${{ steps.branch.outputs.name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           .github/scripts/moderate_cleanup.sh \
-            "${{ steps.branch.outputs.name }}" \
-            "${{ github.event.issue.number }}"
+            "$BRANCH_NAME" \
+            "$ISSUE_NUMBER"

@@ -1,12 +1,37 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "schedule": ["before 6am on monday"],
+  "pre-commit": {
+    "enabled": true
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  },
+  "osvVulnerabilityAlerts": true,
+  "internalChecksFilter": "strict",
   "packageRules": [
     {
       "matchUpdateTypes": ["patch", "minor"],
       "groupName": "patch and minor updates",
-      "automerge": true
+      "automerge": true,
+      "description": "Automerged updates wait 3 days after release (the age Renovate's own security:minimumReleaseAgeNpm preset uses), so a hijacked release is usually yanked or flagged before it lands in main. The top-level internalChecksFilter strict (the docs' recommendation with minimumReleaseAge) makes a still-pending version be skipped, not merged.",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "The python-version datasource has no release timestamps, so under the default minimumReleaseAgeBehaviour (timestamp-required) a Python patch would stay pending forever. It is raised without the age check and, since nothing vouches for its age, is not automerged.",
+      "matchDatasources": ["python-version"],
+      "matchDepNames": ["python"],
+      "groupName": "python patch",
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false
+    },
+    {
+      "description": "The github-runners datasource has no release timestamps either, so the 3 day age check would keep a runner image bump pending forever. Raised without the age check and not automerged.",
+      "matchDatasources": ["github-runners"],
+      "groupName": "runner images",
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false
     },
     {
       "matchUpdateTypes": ["major"],
@@ -19,6 +44,11 @@
       "matchUpdateTypes": ["minor"],
       "groupName": "python minor upgrade",
       "automerge": false
+    },
+    {
+      "description": "Pin container images to their digest. Scoped to the docker managers on purpose: a global pinDigests also hits the pre-commit manager, whose tag revs can't be converted to digests (the update fails). GitHub Actions are pinned by helpers:pinGitHubActionDigests instead.",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "pinDigests": true
     },
     {
       "description": "Renovate can't regenerate .devcontainer/devcontainer-lock.json, so features are bumped by hand together with it (see .devcontainer/README.md).",
@@ -90,6 +120,18 @@
       "depNameTemplate": "quay.io/skopeo/stable"
     },
     {
+      "description": "The syft image pinned by tag and digest in the Makefile; Renovate updates both.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "SYFT_IMAGE := anchore/syft:(?<currentValue>v[0-9][^@\\s]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "anchore/syft"
+    },
+    {
       "description": "The hadolint image pinned in the hadolint hook.",
       "customType": "regex",
       "managerFilePatterns": [
@@ -112,6 +154,18 @@
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "aquasec/trivy"
+    },
+    {
+      "description": "The ZAP image pinned by tag and digest in scripts/image-dast.sh; Renovate updates both.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^scripts/image-dast\\.sh$/"
+      ],
+      "matchStrings": [
+        "zap=ghcr\\.io/zaproxy/zaproxy:(?<currentValue>[0-9][^@\\s]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/zaproxy/zaproxy"
     }
   ]
 }

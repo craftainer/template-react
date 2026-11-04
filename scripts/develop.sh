@@ -16,7 +16,7 @@ node_version=$6
 gh_version=$7
 
 # Network resilience. CI runners share IPs, so unauthenticated downloads
-# from GitHub, the Claude Code installer and the registries intermittently
+# from GitHub, Claude Code's release host and the registries intermittently
 # fail with HTTP 429. Two measures, neither of which changes what is
 # installed:
 #
@@ -42,7 +42,7 @@ gh_version=$7
 #   failed checksum or a kill never leaves the bearer-token header file or
 #   a download directory behind.
 # - retry: reruns a step a bounded number of times with doubling delays, for
-#   installers that do their own downloads inside the script and so can't be
+#   tools that do their own downloads (`uv python install`) and so can't be
 #   wrapped by fetch. Never put a `fetch` inside a `retry`: their retries
 #   would multiply.
 cleanup_paths=()
@@ -87,7 +87,7 @@ fetch() {
     # and looping again would multiply that. At most 4 tries here, each with
     # curl's own retries inside: bounded, and `retry` never wraps a fetch. A transfer curl can tell is cut short (a Content-Length
     # mismatch is exit 18, a cut chunked body 56) is therefore re-fetched
-    # here, not by re-running an installer on a broken file. Callers must write
+    # here, not by unpacking a broken file. Callers must write
     # to a file (-o): a re-run after a partial transfer would otherwise
     # duplicate stdout.
     local attempt=1 status=0
@@ -130,65 +130,125 @@ retry() {
     done
 }
 
-# Installers are downloaded to a file and then run, never piped straight
-# from curl: a retried download would otherwise re-emit the script into a
-# shell that is already executing its first, truncated part. The file is
-# world-readable because the installer runs as the vscode user.
+# Nothing here pipes a download into a shell or runs a vendor's install
+# script: uv, prek and the Claude Code CLI are fetched as the release's own
+# binaries and verified before anything runs, like node, snip and gh below.
+# uv and prek publish a `<asset>.sha256` beside each release asset, which
+# fetch_checked verifies. Claude Code signs its per-release manifest.json
+# (SHA256 per platform) with an Anthropic GPG key, so install_claude checks
+# the key's fingerprint against the pin below, then the signature, then the
+# binary against the manifest -- the vendor's documented verification
+# (https://code.claude.com/docs/en/setup, "Binary integrity and code
+# signing").
 #
-# download_installer <name> <url>: <name> labels fetch's failure message
-# (a variable assignment scoped to that one call), since `set -e` would
-# otherwise abort without saying which installer failed. fetch itself reports,
-# so it still runs under `set -e` (not inside an `||` list, which would
-# disable it).
-installer_script=""
-download_installer() {
-    rm -f "$installer_script"
-    tmp_path
-    installer_script="$tmp_result"
-    chmod a+r "$installer_script"
-    fetch_label="$1 installer" fetch "$2" -o "$installer_script"
-    # An empty 200 response would "succeed" at installing nothing.
-    if [ ! -s "$installer_script" ]; then
-        echo "downloaded $1 installer is empty: $2" >&2
+# fetch_checked <url> <dir>: downloads <url> and <url>.sha256 into <dir> and
+# aborts unless the file matches the checksum listed for its own name.
+fetch_checked() {
+    local url=$1 dir=$2 name
+    name="${url##*/}"
+    fetch_label="$name" fetch "$url" -o "${dir}/${name}"
+    fetch_label="$name checksum" fetch "${url}.sha256" -o "${dir}/${name}.sha256"
+    # awk selects the line for this exact name (a missing one fails), so
+    # sha256sum never sees another asset's line or an empty input.
+    (cd "$dir" && awk -v n="$name" '$2 == n { print; found = 1 } END { exit !found }' "${name}.sha256" | sha256sum -c -)
+}
+
+# Fingerprint of Anthropic's Claude Code release signing key (see the docs
+# above); a key whose primary fingerprint differs is rejected.
+claude_signing_fpr=31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
+claude_release_base=https://downloads.claude.ai/claude-code-releases
+claude_key_url=https://downloads.claude.ai/keys/claude-code.asc
+
+# install_claude <version> <platform> <config dir> <dir>: <platform> is the
+# manifest's platform key (linux-x64, linux-arm64). <dir> is a scratch
+# directory that the vscode user can traverse. Installs as vscode.
+install_claude() {
+    local version=$1 platform=$2 config_dir=$3 dir=$4
+    local key="${dir}/claude-code.asc" gnupg_home fpr status manifest_version checksum
+    tmp_path -d
+    gnupg_home="$tmp_result"
+    fetch_label="Claude Code signing key" fetch "$claude_key_url" -o "$key"
+    fpr="$(gpg --batch --homedir "$gnupg_home" --show-keys --with-colons "$key" |
+        awk -F: '$1 == "fpr" && !seen++ { print $10 }')"
+    if [ "$fpr" != "$claude_signing_fpr" ]; then
+        echo "Claude Code signing key has fingerprint '${fpr}', expected ${claude_signing_fpr}" >&2
         return 1
     fi
+    gpg --batch --quiet --homedir "$gnupg_home" --import "$key"
+    fetch_label="Claude Code manifest" fetch "${claude_release_base}/${version}/manifest.json" -o "${dir}/manifest.json"
+    fetch_label="Claude Code manifest signature" fetch "${claude_release_base}/${version}/manifest.json.sig" -o "${dir}/manifest.json.sig"
+    # A bad, missing or unknown-key signature makes gpg exit non-zero.
+    status="$(gpg --batch --homedir "$gnupg_home" --status-fd 1 --verify "${dir}/manifest.json.sig" "${dir}/manifest.json" 2> /dev/null)" || {
+        echo "Claude Code manifest is not signed by ${claude_signing_fpr}" >&2
+        return 1
+    }
+    # VALIDSIG's 12th field is the signing key's primary fingerprint.
+    printf '%s\n' "$status" |
+        awk -v fpr="$claude_signing_fpr" '$1 == "[GNUPG:]" && $2 == "VALIDSIG" && $12 == fpr { ok = 1 } END { exit !ok }' || {
+        echo "Claude Code manifest is not signed by ${claude_signing_fpr}" >&2
+        return 1
+    }
+    manifest_version="$(jq -er '.version' "${dir}/manifest.json")"
+    if [ "$manifest_version" != "$version" ]; then
+        echo "Claude Code manifest is for ${manifest_version}, expected ${version}" >&2
+        return 1
+    fi
+    checksum="$(jq -er --arg p "$platform" '.platforms[$p].checksum' "${dir}/manifest.json")"
+    if [[ ! $checksum =~ ^[0-9a-f]{64}$ ]]; then
+        echo "Claude Code manifest has no valid checksum for ${platform}" >&2
+        return 1
+    fi
+    fetch_label="Claude Code binary" fetch "${claude_release_base}/${version}/${platform}/claude" -o "${dir}/claude"
+    (cd "$dir" && printf '%s  claude\n' "$checksum" | sha256sum -c -)
+    chmod a+rx "${dir}/claude"
+    # The verified binary installs itself (to ~/.local/share/claude and a
+    # ~/.local/bin/claude link) without fetching anything else.
+    sudo -u vscode env HOME=/home/vscode CLAUDE_CONFIG_DIR="$config_dir" \
+        "${dir}/claude" install "$version"
 }
 
-# The installers do their own downloads. prek's comes only from github.com,
-# so it gets the token (PREK_GITHUB_TOKEN, passed through the environment
-# so it never appears in an argument list). uv's tries releases.astral.sh
-# first, a third-party host, so UV_GITHUB_TOKEN is deliberately not set; the
-# Claude installer downloads from claude.ai, not GitHub.
-#
-# Each installer script is downloaded once, by `fetch`, which has its own
-# retries; only running it is wrapped in `retry`, for the downloads the
-# installer does itself. Wrapping the download in `retry` too would multiply
-# the two layers of retries (up to 4 x 4 x 6 attempts for one script).
-run_uv_installer() {
-    sudo -u vscode env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
+run_uv_python_install() {
+    sudo -u vscode env HOME=/home/vscode /usr/local/bin/uv python install "$python_version"
 }
 
-# An empty PREK_GITHUB_TOKEN is the same as unset to the installer (it tests
-# `[ -n "${AUTH_TOKEN:-}" ]`), so a local build sends no header.
-run_prek_installer() {
-    PREK_GITHUB_TOKEN="${GITHUB_TOKEN:-}" sudo --preserve-env=PREK_GITHUB_TOKEN -u vscode \
-        env HOME=/home/vscode INSTALLER_NO_MODIFY_PATH=1 sh "$installer_script"
-}
-
-run_claude_installer() {
-    sudo -u vscode env HOME=/home/vscode bash "$installer_script" "$claude_code_version"
-}
-
-# xz-utils: Node's own release tarballs are .tar.xz.
+# xz-utils: Node's own release tarballs are .tar.xz. gnupg and jq: verifying
+# the Claude Code manifest's signature and reading its checksum. bubblewrap
+# and socat: the dependencies of Claude Code's built-in sandbox on Linux,
+# which the issue-moderation workflows require (run_claude.sh fails closed
+# without it).
 apt-get update
-apt-get install -y --no-install-recommends xz-utils
+apt-get install -y --no-install-recommends gnupg jq xz-utils bubblewrap socat
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 
-download_installer uv "https://releases.astral.sh/github/uv/releases/download/${uv_version}/uv-installer.sh"
-retry run_uv_installer
-ln -s /home/vscode/.local/bin/uv /usr/local/bin/uv
-ln -s /home/vscode/.local/bin/uvx /usr/local/bin/uvx
+# One arch mapping for every tool below: Debian's name, the Rust triple
+# prefix of uv's and prek's release assets, Node's, and Claude Code's
+# manifest platform key.
+dpkg_arch="$(dpkg --print-architecture)"
+case "$dpkg_arch" in
+    amd64)
+        rust_arch=x86_64
+        node_arch=x64
+        claude_platform=linux-x64
+        ;;
+    arm64)
+        rust_arch=aarch64
+        node_arch=arm64
+        claude_platform=linux-arm64
+        ;;
+    *)
+        echo "unsupported architecture: $dpkg_arch" >&2
+        exit 1
+        ;;
+esac
+
+uv_asset="uv-${rust_arch}-unknown-linux-gnu"
+tmp_path -d
+uv_tmpdir="$tmp_result"
+fetch_checked "https://github.com/astral-sh/uv/releases/download/${uv_version}/${uv_asset}.tar.gz" "$uv_tmpdir"
+tar -xzf "${uv_tmpdir}/${uv_asset}.tar.gz" -C "$uv_tmpdir" "${uv_asset}/uv" "${uv_asset}/uvx"
+install -m755 -t /usr/local/bin "${uv_tmpdir}/${uv_asset}/uv" "${uv_tmpdir}/${uv_asset}/uvx"
+rm -rf "$uv_tmpdir"
 
 # python3 isn't otherwise a dependency of this template -- it's
 # infrastructure tooling only: prek (like pre-commit) needs *some*
@@ -199,7 +259,8 @@ ln -s /home/vscode/.local/bin/uvx /usr/local/bin/uvx
 # rather than an unpinned apt package; `uv python find` below resolves the
 # path so it can be symlinked to a plain, unversioned `python3` on PATH --
 # prek's own hook-venv creation looks for that directly, not via `uv run`.
-sudo -u vscode env HOME=/home/vscode /usr/local/bin/uv python install "$python_version"
+# uv downloads the build itself, so a failed download is retried here.
+retry run_uv_python_install
 python_bin="$(sudo -u vscode env HOME=/home/vscode /usr/local/bin/uv python find "$python_version")"
 ln -s "$python_bin" /usr/local/bin/python3
 ln -s "$python_bin" /usr/local/bin/python
@@ -210,15 +271,6 @@ ln -s "$python_bin" /usr/local/bin/python
 # against that release's published SHASUMS256.txt) rather than a
 # devcontainer feature, so every tool this stage installs is pinned the
 # same way, in the same place -- see .devcontainer/Dockerfile's NODE_VERSION ARG.
-node_dpkg_arch="$(dpkg --print-architecture)"
-case "$node_dpkg_arch" in
-    amd64) node_arch=x64 ;;
-    arm64) node_arch=arm64 ;;
-    *)
-        echo "unsupported architecture for Node.js install: $node_dpkg_arch" >&2
-        exit 1
-        ;;
-esac
 node_asset="node-v${node_version}-linux-${node_arch}"
 tmp_path -d
 node_tmpdir="$tmp_result"
@@ -236,19 +288,33 @@ ln -s "/usr/local/lib/nodejs/${node_asset}/bin/npx" /usr/local/bin/npx
 # project dependency of any particular language's package manager -- every
 # instance, regardless of language, is expected to run
 # `prek run --all-files --hook-stage manual` (see checks.yml).
-download_installer prek "https://github.com/j178/prek/releases/download/v${prek_version}/prek-installer.sh"
-retry run_prek_installer
-ln -s /home/vscode/.local/bin/prek /usr/local/bin/prek
+prek_asset="prek-${rust_arch}-unknown-linux-gnu"
+tmp_path -d
+prek_tmpdir="$tmp_result"
+fetch_checked "https://github.com/j178/prek/releases/download/v${prek_version}/${prek_asset}.tar.gz" "$prek_tmpdir"
+tar -xzf "${prek_tmpdir}/${prek_asset}.tar.gz" -C "$prek_tmpdir" "${prek_asset}/prek"
+install -m755 -t /usr/local/bin "${prek_tmpdir}/${prek_asset}/prek"
+rm -rf "$prek_tmpdir"
 
-download_installer claude https://claude.ai/install.sh
-retry run_claude_installer
+# Created here, owned by vscode, because a fresh claude-config volume
+# (compose.yml) copies this directory's ownership and mode on first mount;
+# left to the install it could be missing or root-owned. 0700: it holds
+# Claude Code's credentials.
+sudo -u vscode install -d -m 0700 /home/vscode/.claude
+# CLAUDE_CONFIG_DIR matches compose.yml's, so anything the install writes
+# lands where Claude Code will look for it at runtime.
+tmp_path -d
+claude_tmpdir="$tmp_result"
+chmod a+rx "$claude_tmpdir"
+install_claude "$claude_code_version" "$claude_platform" /home/vscode/.claude "$claude_tmpdir"
+rm -rf "$claude_tmpdir"
 ln -s /home/vscode/.local/bin/claude /usr/local/bin/claude
 
 # For the snip Claude Code PreToolUse hook -- see .claude/README.md. Not on
 # PyPI/npm, so fetched as a release tarball and checksum-verified against
 # the project's own published checksums.txt instead of trusting a
 # curl-pipe-to-sh installer.
-snip_arch="$(dpkg --print-architecture)"
+snip_arch="$dpkg_arch"
 snip_asset="snip_${snip_version}_linux_${snip_arch}.tar.gz"
 tmp_path -d
 snip_tmpdir="$tmp_result"
@@ -267,7 +333,7 @@ ln -s /home/vscode/.local/bin/snip /usr/local/bin/snip
 # against the release's own checksums file, like snip above. Its login
 # state lives in the gh-config volume (.devcontainer/compose.yml), so a
 # rebuild doesn't require `gh auth login` again.
-gh_arch="$(dpkg --print-architecture)"
+gh_arch="$dpkg_arch"
 gh_asset="gh_${gh_version}_linux_${gh_arch}"
 tmp_path -d
 gh_tmpdir="$tmp_result"

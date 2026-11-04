@@ -17,16 +17,25 @@ the request fits: does it duplicate existing functionality, contradict a
 recorded ADR decision, or belong in a different architectural layer than
 proposed?
 
-Then do exactly one of the following two things. Always end with both a
-comment and a label -- never leave the issue untouched.
+This step cannot push, comment or label: it has a read-only token. A
+separate, privileged step does that afterwards from the result you leave
+behind. You leave it by writing `.moderation-out/triage.json` (the
+directory exists and is not part of the repository), valid JSON with
+exactly two string fields:
+
+    {"action": "not-a-fit" | "plan-ready" | "cannot-plan",
+     "comment": "<markdown for the issue comment>"}
+
+Escape newlines in `comment` as `\n`. Then do exactly one of the
+following two things. Always end with that file -- never leave the issue
+without a result.
 
 ## A. Doesn't fit
 
-- Comment explaining specifically why (cite the duplicated feature, the
-  contradicted ADR, or the layering mismatch).
-- Label it and stop. Do not create a branch:
-
-      gh issue edit "$GITHUB_ISSUE_NUMBER" --add-label "enhancement:not-a-fit"
+- Set `action` to `not-a-fit`. In `comment`, explain specifically why
+  (cite the duplicated feature, the contradicted ADR, or the layering
+  mismatch).
+- Do not create a branch.
 
 ## B. Fits
 
@@ -38,25 +47,16 @@ comment and a label -- never leave the issue untouched.
   Base the Goal/Approach on the issue's Problem/Proposed
   solution/Alternatives fields, plus whatever repo context is needed to
   make the approach concrete and reviewable. Reference any relevant ADR
-  instead of repeating its reasoning. Leave Status as `Draft`.
+  instead of repeating its reasoning. Leave Status as `Draft`. Change
+  nothing else.
 - Commit with a Conventional Commits message (e.g. `docs: plan for
-  #<n>`) and push:
-
-      git push -u origin "feature/$GITHUB_ISSUE_NUMBER-plan"
-
-- Comment on the issue with the plan's Goal/Approach summary and a link
-  to the plan file on that branch:
-
-      repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-      gh issue comment "$GITHUB_ISSUE_NUMBER" --body "... https://github.com/$repo/blob/feature/$GITHUB_ISSUE_NUMBER-plan/docs/plans/<filename> ..."
-
-  Ask the reporter to reply exactly `/confirm` if the plan looks right.
-- Label it:
-
-      gh issue edit "$GITHUB_ISSUE_NUMBER" --add-label "enhancement:plan-ready"
+  #<n>`). Do not push; there is no push access.
+- Set `action` to `plan-ready`. In `comment`, summarise the plan's
+  Goal/Approach and ask a maintainer to add the `enhancement:confirm`
+  label once the plan looks right. The link to the branch is added for
+  you.
 
 If you cannot produce a coherent plan (the request is too vague even
 after reading the repo, or genuinely needs a maintainer decision first),
-comment explaining what's blocking a plan and label
-`gh issue edit "$GITHUB_ISSUE_NUMBER" --add-label "needs-human"` instead
-of case B. Do not push a branch in that case.
+set `action` to `cannot-plan` and explain in `comment` what's blocking a
+plan. Do not commit anything in that case.

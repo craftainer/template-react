@@ -7,7 +7,7 @@
 # the bundle is built with the same Node the devcontainer tests against --
 # enforced by scripts/check-dockerfile-versions.sh.
 # renovate: datasource=node-version depName=node
-ARG NODE_VERSION=24.22.1
+ARG NODE_VERSION=24.22.2
 ARG DEBIAN_VERSION=trixie
 
 ARG SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt

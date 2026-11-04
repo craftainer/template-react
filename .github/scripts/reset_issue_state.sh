@@ -12,11 +12,11 @@ issue="$2"
 
 case "$kind" in
   bug)
-    stage_labels=(bug:needs-info bug:repro-ready bug:confirmed bug:fixed needs-human)
+    stage_labels=(bug:needs-info bug:repro-ready bug:confirm bug:fixed needs-human)
     branch="bug/$issue-repro"
     ;;
   enhancement)
-    stage_labels=(enhancement:not-a-fit enhancement:plan-ready enhancement:confirmed enhancement:built needs-human)
+    stage_labels=(enhancement:not-a-fit enhancement:plan-ready enhancement:confirm enhancement:built needs-human)
     branch="feature/$issue-plan"
     ;;
   *)

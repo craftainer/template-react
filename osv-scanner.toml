@@ -1,0 +1,12 @@
+# osv-scanner config, picked up automatically from the repo root. Each entry
+# is time-boxed: it expires on ignoreUntil and the advisory fails the scan again.
+
+[[IgnoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+ignoreUntil = 2026-12-31T00:00:00Z
+reason = "Dev-only: @storybook/react-vite -> vite-plugin-react-docgen-typescript -> glob 13 -> minimatch 10; globs local source only, not reachable from untrusted input; no upstream release accepts glob 14 yet. Re-check on expiry."
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2026-12-31T00:00:00Z
+reason = "Dev-only: @storybook/react-vite -> vite-plugin-react-docgen-typescript -> glob 13 -> minimatch 10; globs local source only, not reachable from untrusted input; no upstream release accepts glob 14 yet. Re-check on expiry."

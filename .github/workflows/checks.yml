@@ -26,7 +26,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Unique per run so concurrent runs (two PRs, or a re-run) never
       # collide on container/volume/network names, and so the teardown
@@ -35,7 +37,7 @@ jobs:
         run: echo "COMPOSE_PROJECT_NAME=ci-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.4.1
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Warms the Buildx layer cache for the devcontainer image (the
       # `develop` stage below) before devcontainers/ci builds it via
@@ -44,7 +46,7 @@ jobs:
       # push/load since this step only needs to populate the cache, not
       # produce a usable image.
       - name: Warm devcontainer image build cache
-        uses: docker/build-push-action@v7.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
@@ -61,14 +63,20 @@ jobs:
       # devcontainer -- the same environment (uv, prek, playwright, ...) a
       # contributor develops in, not a hand-rolled CI-only equivalent.
       - name: Run all hooks in the devcontainer
-        uses: devcontainers/ci@v0.3
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
         env:
           # Build-time only: compose.yml's `github_token` build secret, so
           # the image build's GitHub downloads are authenticated and not
           # rate-limited (HTTP 429). Not forwarded into the container.
           GITHUB_TOKEN: ${{ github.token }}
+          # Forwarded (see `env:` below) so zizmor runs its online audits
+          # too; locally, without a token, it runs offline. The workflow's
+          # `contents: read` is all zizmor's docs ask of the token.
+          GH_TOKEN: ${{ github.token }}
         with:
           runCmd: prek run --all-files --hook-stage manual
+          env: |
+            GH_TOKEN
 
       # devcontainers/ci starts the full compose stack (see
       # .devcontainer/devcontainer.json's dockerComposeFile) but never
