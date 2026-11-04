@@ -356,9 +356,16 @@ test.describe("logout", () => {
     context,
   }) => {
     await page.goto(MAIN.origin, { waitUntil: "domcontentloaded" });
+    // The signed-in SPA loads its hero list right after sign-in. A 401 on that (or any
+    // CRUD) request makes the SPA itself navigate to /bff/login, which would race the
+    // reload below, so let the list settle before the session goes away.
+    const heroList = page.waitForResponse(
+      (r) => r.url().includes("/crud/v1/heroes") && r.status() === 200,
+    );
     await page.getByRole("button", { name: "Sign in" }).click();
     await submitKeycloakForm(page, "maintainer");
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await heroList;
 
     // Lose the session behind the browser's back (a Valkey flush, an expiry).
     await valkey(["DEL", `sess:${await sessionId(context)}`]);
