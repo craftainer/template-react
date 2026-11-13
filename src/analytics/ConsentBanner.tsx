@@ -80,7 +80,7 @@ export function ConsentBanner() {
 
   if (!asking) {
     return (
-      <Box component="footer" sx={{ px: 3, py: 1 }}>
+      <Box component="footer" sx={{ px: 0.5, py: 1 }}>
         <Button
           ref={settingsRef}
           size="small"
