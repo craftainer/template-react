@@ -26,14 +26,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # Node 25+ no longer ships Corepack, so pnpm comes from pnpm/action-setup,
+      # which reads the version from package.json's `packageManager`.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - name: Install dependencies
-        run: |
-          # Node 25+ no longer ships Corepack, and this image's Node may be
-          # newer than the devcontainer's, so install the pnpm that
-          # package.json's `packageManager` pins directly with npm.
-          pnpm_version=$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '').replace(/\+.*/, '')")
-          npm install --global --no-audit --no-fund --silent "pnpm@${pnpm_version}"
-          pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build Storybook
         run: pnpm exec storybook build --quiet
