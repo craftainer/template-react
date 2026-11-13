@@ -35,15 +35,20 @@ test("an expiring access token is refreshed once, however many requests race", a
     { "X-CSRF": "1" },
   );
 
+  // The `crud` upstream exchanges the token (tokenExchange): the first proxied
+  // call writes the exchanged token into the session, which bumps `version`.
+  // Prime that, so the baseline below is a session at rest.
+  expect((await api.get(HEROES)).status()).toBe(200);
+
   // Fresh: a proxied call does not touch the tokens.
   const first = await storedSession(id);
-  expect(first).toMatchObject({ version: 0 });
+  expect(first).toMatchObject({ version: 1 });
   const lifetime = first!.accessExpiresAt - Math.floor(Date.now() / 1000);
   expect(lifetime).toBeLessThanOrEqual(ACCESS_TOKEN_SECONDS);
   expect(lifetime).toBeGreaterThan(REFRESH_SKEW_SECONDS - 5); // the realm change took effect
   expect((await api.get(HEROES)).status()).toBe(200);
   expect(await storedSession(id)).toMatchObject({
-    version: 0,
+    version: 1,
     accessToken: first!.accessToken,
   });
 
@@ -56,11 +61,12 @@ test("an expiring access token is refreshed once, however many requests race", a
   );
   expect(statuses).toEqual(Array(8).fill(200));
 
-  // One refresh won the lock and the compare-and-set: version 0 -> 1, new
-  // tokens, a rotated refresh token, and the lock released.
+  // One refresh won the lock and the compare-and-set (version 1 -> 2), and the
+  // eight requests then shared one new exchange (2 -> 3): new tokens, a rotated
+  // refresh token, and the lock released.
   const refreshed = await storedSession(id);
   expect(refreshed).toMatchObject({
-    version: 1,
+    version: 3,
     sub: first!.sub,
     sid: first!.sid,
   });

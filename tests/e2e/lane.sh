@@ -30,6 +30,9 @@ compose=(docker compose -p "$project"
 case "${1:-}" in
   up)
     # --no-deps: myapp's depends_on also lists Selenium, which the lane leaves out.
+    # mqtt's TLS certificate comes from the one-shot `mqtt-tls-cert` service, which
+    # --no-deps would skip (mosquitto then crash-loops on the missing /tls/mqtt.crt).
+    "${compose[@]}" run --rm --no-deps mqtt-tls-cert
     # Infrastructure first (to healthy), then the API, which needs it at startup.
     "${compose[@]}" up -d --wait --no-deps postgres s3 redis mqtt keycloak
     "${compose[@]}" up -d --wait --no-deps --build myapp
