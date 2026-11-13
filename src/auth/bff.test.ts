@@ -92,6 +92,39 @@ describe("logout", () => {
     expect(navigate).toHaveBeenCalledWith("https://idp.test/logout?x=1");
   });
 
+  it("runs afterLogout between the BFF answer and the navigation", async () => {
+    const order: string[] = [];
+    const fetchFake = vi.fn(async () => {
+      order.push("post");
+      return new Response(
+        JSON.stringify({ logoutUrl: "https://idp.test/out" }),
+      );
+    });
+
+    await logout(
+      fetchFake,
+      () => void order.push("navigate"),
+      async () => void order.push("after"),
+    );
+
+    expect(order).toEqual(["post", "after", "navigate"]);
+  });
+
+  it("does not run afterLogout when the logout request failed (the session is still live)", async () => {
+    const afterLogout = vi.fn();
+    const navigate = vi.fn();
+
+    await expect(
+      logout(
+        async () => new Response(null, { status: 500 }),
+        navigate,
+        afterLogout,
+      ),
+    ).rejects.toThrow(/500/);
+    expect(afterLogout).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("refuses a missing or non-http(s) logoutUrl and a failed request", async () => {
     const navigate = vi.fn();
     for (const body of [{}, { logoutUrl: "javascript:alert(1)" }]) {

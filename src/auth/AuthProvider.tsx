@@ -4,6 +4,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AuthContext, type AuthValue } from "./authContext";
 import { fetchUser, logout, redirectToLogin, type BffUser } from "./bff";
+import { runTeardown } from "./teardown";
+import { clearBounce } from "./unauthorized";
 
 type Session =
   | { readonly status: "loading" }
@@ -30,8 +32,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading: session.status === "loading",
       isAuthenticated: user !== null,
       user,
-      login: () => redirectToLogin(),
-      logout: () => logout(),
+      // A deliberate sign-in starts a fresh bounce budget (see unauthorized.ts).
+      login: () => {
+        clearBounce();
+        redirectToLogin();
+      },
+      // The cache and any event streams belong to this user: drop them once the
+      // BFF has ended the session, before leaving the page.
+      logout: () =>
+        logout(undefined, undefined, async () => {
+          await runTeardown();
+          clearBounce();
+        }),
     };
   }, [session]);
 

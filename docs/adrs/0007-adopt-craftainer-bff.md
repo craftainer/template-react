@@ -102,3 +102,58 @@ passes it on:
 `style=""` attributes, which a nonce cannot cover. Under `vite dev` the
 placeholder stays literal and no CSP is enforced; with no meta tag (unit
 tests, Storybook) the cache simply has no nonce.
+
+## Amendment: 401 loop guard, session teardown, accepted gaps (OF1)
+
+**Cache scope and `onUnauthorized` (crud-sdk 0.9).** The client is built with
+`createClient({ cache })`, `cacheScope` set to `/bff/user`'s `sub` and
+`onUnauthorized(response, { attempt, url })`. A cached cookie client without a
+scope throws at construction in 0.9, and the app goes further: with no `sub` it
+builds no cached client at all and shows an error (fail closed). The data is
+per user, so `cacheScope: "shared"` (meant for public data) is not used.
+
+**One login bounce per tab (`src/auth/unauthorized.ts`).** A final 401 used to
+navigate to `/bff/login` without limit; while the identity provider's own
+session lives, a signed-in user the API rejects (audience mismatch, a role the
+upstream refuses) looped between the SPA, the BFF and the provider, once per
+open tab. Now the first 401 stores a timestamp in `sessionStorage` and
+redirects; a second 401 (a marker younger than ten minutes, or the SDK's
+`attempt` above 1) shows "signed in, but not authorised" with a manual
+"Sign in again" button. The marker survives the navigations and reloads of the
+bounce; a request that succeeds, an explicit sign-in or a logout clears it. A
+marker that is unreadable, malformed, from the future, or storage that is
+unavailable counts as "already bounced" (fail closed: an error with a button,
+never a loop). It holds a timestamp only.
+
+**Logout and user change.** The SDK does not notice a session change, so
+`src/auth/teardown.ts` keeps a registry. `CrudApiProvider` registers the
+clearing of the SDK cache (`cache.close()`, `cache.clear()`) and the TanStack
+query cache; logout runs the registry after the BFF ended the session and
+before navigating to the provider. A failed `POST /bff/logout` leaves the
+caches alone (the session is live) and the app bar says "Could not sign you
+out". The same clearing runs when the provider unmounts or the `sub` changes,
+and a client built for another `sub` is never handed out. The app opens no
+event hub today; any future `invalidateOnEvents` / `subscribeEvents`
+unsubscribe is registered in the same registry.
+
+**Startup.** `/bff/config` gets a ten second timeout; past it the app starts
+with an empty config instead of a blank page. An empty config means no
+analytics prompt until a reload; the BFF still decides what is recorded (under
+`opt-in`, nothing without consent; under `implied`, as before the prompt
+existed).
+
+**`MODE`.** The "apps refuse to start when `MODE` is unset" decision (OWASP
+triage, 2026-11-04) applies to apps with a mode switch. This BFF has none: its
+only switch is `NODE_ENV`, which the image sets to `production` and which the
+library reads to refuse plaintext Valkey and an insecure IdP. Nothing is added
+here. Under `vite dev` / `pnpm dev:bff` an unset `NODE_ENV` is the development
+mode, and that default belongs to the library (recorded as a follow-up for
+lib-bff-ts: refuse an unset `NODE_ENV` too).
+
+**Accepted: the BFF e2e is a local lane only (Medium).** The tests under
+`tests/e2e/` need template-fastapi's Keycloak and API, so no CI workflow runs
+them. Renovate's automerge of `@craftainer/bff` (patch and minor, after three
+days, with prek and CodeQL green) stays on, so a library regression in a cookie
+flag, the CSRF check or the CSP reaches `main` unless the lane was run first.
+Accepted by the maintainers on 2026-11-04; mitigated by running
+`tests/e2e/lane.sh` before releases and when bumping the library by hand.

@@ -133,11 +133,11 @@ importers:
   .:
     dependencies:
       "@craftainer/crud-sdk":
-        specifier: 0.8.0
-        version: 0.8.0(@tanstack/query-core@5.104.5)
+        specifier: 0.9.0
+        version: 0.9.0(@tanstack/query-core@5.104.5)
       "@craftainer/crud-views":
         specifier: 0.5.1
-        version: 0.5.1(9c30cf1a117b8d1eee289a8e2cefdb89)
+        version: 0.5.1(5205fc538a319e64bd3cf69e2f17863a)
       "@emotion/cache":
         specifier: 11.14.0
         version: 11.14.0
@@ -423,10 +423,10 @@ packages:
       "@opentelemetry/api-logs":
         optional: true
 
-  "@craftainer/crud-sdk@0.8.0":
+  "@craftainer/crud-sdk@0.9.0":
     resolution:
       {
-        integrity: sha512-Lju6+pNHihTLh4eMWvcckKojQOzoUA1EZSw6Dv2K8rtFvUrTYjWjv8TW8tsng6UVzrVJAq7uUpuGZESgCKOm4w==,
+        integrity: sha512-qqfBzzcabqjoJKfOuzlFK0huhLOfLuJUvclGNWXnHhe1KCRv6su9RRWNZXTjxjLmkmstBcBpX7/Y/8DEKS84rg==,
       }
     engines: { node: ">=24.22.0" }
     hasBin: true
@@ -4536,13 +4536,13 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  "@craftainer/crud-sdk@0.8.0(@tanstack/query-core@5.104.5)":
+  "@craftainer/crud-sdk@0.9.0(@tanstack/query-core@5.104.5)":
     optionalDependencies:
       "@tanstack/query-core": 5.104.5
 
-  "@craftainer/crud-views@0.5.1(9c30cf1a117b8d1eee289a8e2cefdb89)":
+  "@craftainer/crud-views@0.5.1(5205fc538a319e64bd3cf69e2f17863a)":
     dependencies:
-      "@craftainer/crud-sdk": 0.8.0(@tanstack/query-core@5.104.5)
+      "@craftainer/crud-sdk": 0.9.0(@tanstack/query-core@5.104.5)
       "@emotion/react": 11.14.0(@types/react@19.2.18)(react@19.2.8)
       "@emotion/styled": 11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8)
       "@mui/material": 9.4.0(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

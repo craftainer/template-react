@@ -112,7 +112,11 @@ describe("createCrudApi", () => {
   it("discovers the manifest through /api/crud with the session cookie and X-CSRF, never a token", async () => {
     const { fetchFake } = backend();
 
-    const api = await createCrudApi({ fetch: fetchFake, origin: ORIGIN });
+    const api = await createCrudApi({
+      cacheScope: "u1",
+      fetch: fetchFake,
+      origin: ORIGIN,
+    });
 
     expect(latestResources(api.manifest).map((r) => r.name)).toEqual([
       "heroes",
@@ -127,7 +131,11 @@ describe("createCrudApi", () => {
 
   it("sends X-CSRF on every request, writes included", async () => {
     const { fetchFake } = backend();
-    const api = await createCrudApi({ fetch: fetchFake, origin: ORIGIN });
+    const api = await createCrudApi({
+      cacheScope: "u1",
+      fetch: fetchFake,
+      origin: ORIGIN,
+    });
     const heroes = await api.client.resource("heroes");
 
     await heroes.get(1);
@@ -150,26 +158,80 @@ describe("createCrudApi", () => {
       fetch: fetchFake,
       origin: ORIGIN,
     });
-    const anon = await createCrudApi({ fetch: fetchFake, origin: ORIGIN });
 
     expect(await a.client.scope()).not.toBe(await b.client.scope());
-    expect(await anon.client.scope()).toBe("anon");
     expect(await a.client.scope()).not.toBe("anon");
   });
 
-  it("runs onUnauthorized on a final 401", async () => {
+  it("refuses to build a cached client without a cache scope (fail closed)", async () => {
+    const { fetchFake } = backend();
+
+    await expect(
+      createCrudApi({ cacheScope: "", fetch: fetchFake, origin: ORIGIN }),
+    ).rejects.toThrow(/cacheScope/);
+    expect(fetchFake).not.toHaveBeenCalled();
+  });
+
+  it("keys the cache by the sub: one user's cached read is not served to another", async () => {
+    const { fetchFake } = backend();
+    const a = await createCrudApi({
+      cacheScope: "u1",
+      fetch: fetchFake,
+      origin: ORIGIN,
+    });
+    const b = await createCrudApi({
+      cacheScope: "u2",
+      fetch: fetchFake,
+      origin: ORIGIN,
+    });
+    const etagA = etagGetter(a, (await a.client.resource("heroes")).resource);
+    const etagB = etagGetter(b, (await b.client.resource("heroes")).resource);
+
+    await (await a.client.resource("heroes")).get(1);
+
+    expect(await etagA(1)).toBe('"before"');
+    expect(await etagB(1)).toBeUndefined();
+  });
+
+  it("clears what the cache remembers", async () => {
+    const { fetchFake } = backend();
+    const api = await createCrudApi({
+      cacheScope: "u1",
+      fetch: fetchFake,
+      origin: ORIGIN,
+    });
+    const heroes = await api.client.resource("heroes");
+    await heroes.get(1);
+    const etag = etagGetter(api, heroes.resource);
+    expect(await etag(1)).toBe('"before"');
+
+    await api.cache.clear();
+
+    expect(await etag(1)).toBeUndefined();
+  });
+
+  it("runs onUnauthorized on a final 401 with the attempt and the url", async () => {
     const onUnauthorized = vi.fn();
     const fetchFake = vi.fn(async () => new Response(null, { status: 401 }));
 
     await expect(
-      createCrudApi({ fetch: fetchFake, origin: ORIGIN, onUnauthorized }),
+      createCrudApi({
+        cacheScope: "u1",
+        fetch: fetchFake,
+        origin: ORIGIN,
+        onUnauthorized,
+      }),
     ).rejects.toThrow();
-    expect(onUnauthorized).toHaveBeenCalled();
+    expect(onUnauthorized).toHaveBeenCalledWith(expect.any(Response), {
+      attempt: 1,
+      url: `${ORIGIN}/.well-known/api-catalog`,
+    });
   });
 
   it("supplies the cached ETag of a record read, and the SDK sends it as If-Match", async () => {
     const { fetchFake, patches } = backend();
     const api = await createCrudApi({
+      cacheScope: "u1",
       fetch: fetchFake,
       origin: ORIGIN,
     });
@@ -189,6 +251,7 @@ describe("rowEtagGetter", () => {
   async function setup() {
     const { fetchFake } = backend();
     const api = await createCrudApi({
+      cacheScope: "u1",
       fetch: fetchFake,
       origin: ORIGIN,
     });

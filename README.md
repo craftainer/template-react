@@ -40,7 +40,7 @@ decisions:
 - [`0007-adopt-craftainer-bff.md`](docs/adrs/0007-adopt-craftainer-bff.md) —
   the BFF: cookie sessions, no tokens in the browser, the Node runner image.
 - [`0008-spa-analytics-and-consent.md`](docs/adrs/0008-spa-analytics-and-consent.md) —
-  page views and events through the BFF, implied consent, GPC/DNT.
+  page views and events through the BFF, the consent prompt, GPC/DNT.
 
 Requirements: [`FR-0001`](docs/frs/FR-0001-sign-in-through-the-bff.md);
 the services and how they connect: [`docs/architecture.md`](docs/architecture.md).

@@ -12,6 +12,11 @@ export interface ApiStub {
   health?: "up" | "down" | "pending";
   /** `GET` of the heroes list: rows, "pending" (loading) or an HTTP error. */
   heroes?: Hero[] | "pending" | { status: number; detail: string };
+  /**
+   * `/bff/consent`: what the BFF's cookie holds ("unasked" and "declined" both
+   * read back as `false`, as the real endpoint does), or "failing" (saves 500).
+   */
+  consent?: "unasked" | "allowed" | "declined" | "failing";
 }
 
 /** What a story may set in `parameters`; preview.tsx reads both. */
@@ -100,10 +105,18 @@ const never = () => new Promise<Response>(() => {});
 
 /** Replaces `window.fetch` with a fake of the two endpoints the app calls. */
 export function installApiStub(api: ApiStub = {}) {
-  const { health = "up", heroes = [] } = api;
+  const { health = "up", heroes = [], consent = "unasked" } = api;
   window.fetch = async (input, init) => {
     const url = new URL(String(input), window.location.origin);
     const method = (init?.method ?? "GET").toUpperCase();
+    if (url.pathname === "/bff/consent") {
+      if (method === "POST") {
+        if (consent === "failing") return json(500, { error: "stubbed" });
+        const body = JSON.parse(String(init?.body)) as { analytics: boolean };
+        return json(200, { analytics: body.analytics });
+      }
+      return json(200, { analytics: consent === "allowed" });
+    }
     if (url.pathname === "/api/crud/health/live") {
       if (health === "pending") return never();
       return health === "up"
