@@ -83,3 +83,70 @@ describe("AuthProvider logout", () => {
     off();
   });
 });
+
+describe("AuthProvider identity re-check", () => {
+  const realFetch = window.fetch;
+  let answer: () => Response;
+  const show = (visible: boolean) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => (visible ? "visible" : "hidden"),
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    answer = () => json(user);
+    window.fetch = async () => answer();
+  });
+  afterEach(() => {
+    cleanup();
+    window.fetch = realFetch;
+    show(true);
+  });
+
+  const mount = async () => {
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await screen.findByText("Ada");
+  };
+
+  it("shows the other user when another tab signed in as someone else", async () => {
+    await mount();
+    answer = () => json({ ...user, sub: "u2", name: "Grace" });
+    show(true);
+    await screen.findByText("Grace");
+  });
+
+  it("shows signed out when the session ended in another tab", async () => {
+    await mount();
+    answer = () => new Response(null, { status: 401 });
+    show(true);
+    await screen.findByText("anon");
+  });
+
+  it("keeps the user when the check fails (a blip is not a logout)", async () => {
+    await mount();
+    const calls = vi.fn(() => new Response(null, { status: 500 }));
+    answer = calls;
+    show(true);
+    await waitFor(() => expect(calls).toHaveBeenCalled());
+    expect(screen.getByText("Ada")).toBeTruthy();
+  });
+
+  it("does not ask while the tab is hidden", async () => {
+    await mount();
+    const calls = vi.fn(() => json(user));
+    answer = calls;
+    show(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).not.toHaveBeenCalled();
+  });
+});

@@ -157,3 +157,68 @@ days, with prek and CodeQL green) stays on, so a library regression in a cookie
 flag, the CSRF check or the CSP reaches `main` unless the lane was run first.
 Accepted by the maintainers on 2026-11-04; mitigated by running
 `tests/e2e/lane.sh` before releases and when bumping the library by hand.
+
+## Amendment: the remaining OWASP Lows (OWLOW)
+
+The OWASP review of 2026-11-04 (OW-template-react, 21 Lows) was triaged in two
+steps: the auth, session, consent and startup findings shipped with the OF1
+amendment above; the rest are settled here.
+
+**Fixed.**
+
+- The runner's `FROM` had drifted from the builder's Node (24.22.1 against
+  24.22.2). It is realigned, and `bff/src/dockerfile.test.ts` (part of
+  `vitest run`) fails when the two differ again.
+- The BFF handles `SIGTERM` and `SIGINT` (`bff/src/shutdown.ts`): it stops
+  accepting, lets running requests finish and exits, instead of waiting out
+  the grace period for a `SIGKILL` with node as PID 1.
+- A tab asks `/bff/user` again when it becomes visible, because the cookie is
+  shared by every tab: a second sign-in as another user, or a sign-out, no
+  longer leaves the first tab showing the old name and records. Only a 401 or a
+  user changes the state; a failed check keeps it.
+- `.env` and `.env.*` are in `.dockerignore`, so a developer's local file never
+  enters the builder stage (a `VITE_` secret there would have reached the
+  bundle).
+- `BFF_TRUST_PROXY` is documented (README, `.env.example`).
+- `osv-scanner.toml` named the dev-only tree for an advisory that is no longer
+  present (minimatch 10 is gone since the `glob@13>minimatch` override); that
+  ignore is removed and the other one names the runtime tree it excludes.
+- `vitest.config.ts` caps the pool at two workers, and a `tsc -p tests/e2e`
+  hook (`pnpm typecheck:e2e`) type-checks the e2e specs, which no hook covered.
+
+**Accepted, with the reason.**
+
+- `fetchUser().catch(() => null)` on first load treats a failed `/bff/user` as
+  signed out. A visitor with a broken BFF can do nothing but sign in anyway,
+  and the sign-in navigation reports the real failure; the later re-checks
+  (above) do not downgrade a signed-in tab.
+- `viewPath` sends the pathname as is (ADR 0008 states it). This app has no
+  routes with ids or emails in the path; an instance that adds some must
+  filter them in `pageViews.ts`.
+- `prefixed()` in `src/api/sdk.ts` leaves a cross-origin URL alone. The SDK
+  follows absolute links of the backend's manifest and catalog, and the BFF's CSP
+  (`default-src 'self'`, which `connect-src` falls back to; asserted by
+  `tests/e2e/session.e2e.ts`) is the guard;
+  the session cookie is host-only and `SameSite=Strict`, so it is never sent to
+  another origin.
+- No image `HEALTHCHECK`. Release images are copied with skopeo in OCI format,
+  which has no such field, and Kubernetes ignores it; the probes are
+  `/health/live` and `/health/ready`, which the image-smoke run already uses.
+- The builder and `bff-deploy` bases are pinned by tag, not digest. They only
+  produce the bundle and the pruned `node_modules`, from a locked install with
+  a release-age gate; the image that serves requests (the runner) is
+  digest-pinned. A digest per stage doubles Renovate's churn for no
+  runtime exposure.
+- The dev Valkey is `valkey/valkey:9.1.2-alpine` by tag without a password, on
+  the compose network, with `SESSION_STORE_ALLOW_PLAINTEXT`. Development only;
+  the library refuses plaintext under `NODE_ENV=production`.
+- `.devcontainer/compose.instance.yml` is `replace` tier in the template-sync
+  manifest although it mixes template and instance values. A sync shows the
+  file in its diff, and an instance that edits it moves it to `ignore` in its
+  own manifest (as `bff/` is). Fixing the tier is template-docker's decision.
+- Renovate's automerge of `@craftainer/bff` and its exclusion from
+  `minimumReleaseAge`: first-party, with the e2e lane (see the amendment
+  above) as the gate for a cookie, CSRF or CSP regression.
+- Inherited from template-docker, tracked in its OW report and not changed
+  here: `chmod 0777` on the DAST work directory (`scripts/image-dast.sh`) and
+  the tag-only `hadolint` image in `.pre-commit-config.yaml`.

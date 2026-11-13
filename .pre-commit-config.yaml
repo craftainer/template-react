@@ -116,6 +116,14 @@ repos:
         always_run: true
         stages: [pre-push, manual]
 
+      - id: typecheck-e2e
+        name: tsc (tests/e2e)
+        entry: pnpm run typecheck:e2e
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
       - id: vitest
         name: vitest run
         entry: pnpm exec vitest run

@@ -60,11 +60,11 @@ RUN pnpm --filter ./bff deploy --prod /out
 # NODE_VERSION-DEBIAN_VERSION-slim (the digest is the multi-arch index's): a
 # digest wins over the tag when Docker pulls, so the tag cannot be derived from
 # the ARGs here; when the ARGs change, change this line with them (the
-# builder's node binary is what the tests ran against). No script checks this
-# yet.
+# builder's node binary is what the tests ran against). The `vitest run` hook
+# checks it (bff/src/dockerfile.test.ts).
 ########################################
 # renovate: datasource=docker depName=node
-FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS runner
+FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS runner
 
 ENV NODE_ENV=production \
     BFF_STATIC_DIR=/app/dist

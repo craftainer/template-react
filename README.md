@@ -101,6 +101,11 @@ build-time OIDC setting). It refuses to start without:
 | `OIDC_CLIENT_SECRET` | Secret of the confidential `bff` client.                                                                |
 | `SESSION_STORE_URL`  | Valkey/Redis URL; `rediss://` outside local dev (plaintext needs `SESSION_STORE_ALLOW_PLAINTEXT=true`). |
 
+Behind a reverse proxy or ingress, also set `BFF_TRUST_PROXY` to the hop
+count (e.g. `1`) or the proxy's address range: with the default (`false`) all
+clients share one rate-limit bucket and logs show the proxy's address, and
+`true` trusts any `X-Forwarded-For`, which a client can forge.
+
 Also commonly set: `BFF_UPSTREAMS` (JSON allowlist, `crud` by default
 mounted at `/api/crud/*`), `OIDC_DISCOVERY_URL` (when the BFF reaches the IdP
 at another host than `iss`), `ANALYTICS_*` and `SECURITY_TXT_*`. Every

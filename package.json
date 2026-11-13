@@ -9,6 +9,7 @@
     "dev:bff": "pnpm --filter ./bff dev",
     "start:bff": "pnpm --filter ./bff start",
     "typecheck:bff": "pnpm --filter ./bff typecheck",
+    "typecheck:e2e": "tsc -p tests/e2e",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "oxlint",
