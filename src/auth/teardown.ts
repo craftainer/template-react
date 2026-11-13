@@ -18,11 +18,21 @@ export function registerTeardown(fn: Teardown): () => void {
   };
 }
 
-/** Runs every registered teardown. A failing one never stops the others. */
+/**
+ * Runs every registered teardown. A failing one never stops the others or the
+ * logout (the BFF session is already gone, and the cache is in memory, so the
+ * navigation that follows drops it anyway); it is logged, without data, so
+ * the failure is visible.
+ */
 export async function runTeardown(): Promise<void> {
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     [...registered].map(async (fn) => {
       await fn();
     }),
   );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("Session teardown step failed", result.reason);
+    }
+  }
 }

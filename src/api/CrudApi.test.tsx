@@ -130,14 +130,36 @@ describe("CrudApiProvider 401 handling", () => {
     expect(window.sessionStorage.getItem(BOUNCE_KEY)).toBeNull();
   });
 
-  it("clears the marker once the API answers", async () => {
+  it("keeps the marker through discovery and clears it once a resource request succeeds", async () => {
     window.sessionStorage.setItem(BOUNCE_KEY, String(Date.now() - 1000));
     installAdminStub();
+    const seen: ReturnType<typeof useCrudApi>[] = [];
+    function Capture() {
+      seen.push(useCrudApi());
+      return <output>ready</output>;
+    }
+    useAuthMock.mockReturnValue({ isAuthenticated: true, user });
+    render(
+      <CrudApiProvider>
+        <Capture />
+      </CrudApiProvider>,
+    );
+
+    await screen.findByText("ready");
+    expect(window.sessionStorage.getItem(BOUNCE_KEY)).not.toBeNull();
+
+    await (await seen[0].client.resource("heroes")).get(1);
+    expect(window.sessionStorage.getItem(BOUNCE_KEY)).toBeNull();
+  });
+
+  it("shows no load error while the browser is on its way to login", async () => {
+    window.fetch = unauthorised;
 
     providerWithAuth();
 
-    await screen.findByText("u1");
-    expect(window.sessionStorage.getItem(BOUNCE_KEY)).toBeNull();
+    await waitFor(() => expect(redirectMock).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText(/could not load the api/i)).toBeNull();
   });
 });
 

@@ -26,8 +26,15 @@ describe("teardown registry", () => {
     });
     const offSurvivor = registerTeardown(survivor);
     registerTeardown(removed)();
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     await runTeardown();
+
+    expect(log).toHaveBeenCalledWith(
+      "Session teardown step failed",
+      expect.any(Error),
+    );
+    log.mockRestore();
 
     expect(survivor).toHaveBeenCalledTimes(1);
     expect(removed).not.toHaveBeenCalled();

@@ -1,6 +1,7 @@
 // The analytics consent prompt (ADR 0008). It asks once, with two equally
 // weighted answers, and afterwards leaves only a quiet "Analytics settings"
-// button so the choice can be changed (withdrawing is as easy as giving).
+// button so the choice can be changed (withdrawing is as easy as giving). The
+// reopened prompt can be closed (button or Escape) without choosing.
 // The choice itself lives in the BFF's cookie (`useConsent`); this component
 // shows nothing when analytics is off in `/bff/config`, when the browser
 // sends Global Privacy Control / Do Not Track (the BFF drops those events
@@ -55,6 +56,12 @@ export function ConsentBanner() {
 
   const asking = reopened || (!answered && granted !== true);
 
+  function close() {
+    setReopened(false);
+    setFailed(false);
+    focusNext.current = "settings";
+  }
+
   async function answer(analytics: boolean) {
     setSaving(true);
     setFailed(false);
@@ -94,6 +101,9 @@ export function ConsentBanner() {
       component="section"
       aria-labelledby="consent-title"
       aria-describedby="consent-body"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && reopened) close();
+      }}
       sx={{
         position: "sticky",
         bottom: 0,
@@ -152,6 +162,11 @@ export function ConsentBanner() {
           >
             Decline
           </Button>
+          {reopened ? (
+            <Button color="inherit" disabled={saving} onClick={close}>
+              Close
+            </Button>
+          ) : null}
         </Stack>
       </Stack>
     </Box>

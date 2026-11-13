@@ -2,7 +2,7 @@
 // user, waits for the manifest, then provides it to @craftainer/crud-views.
 // A client is never built without the user's `sub` (the cache scope), and its
 // cache and the query cache are cleared when the user changes or signs out.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -15,12 +15,16 @@ import { bounceToLogin, clearBounce } from "../auth/unauthorized";
 import { CrudApiContext } from "./crudApiContext";
 import { createCrudApi, type CrudApi } from "./sdk";
 
-/** Clears everything cached for the user these belong to. */
-async function clearUserData(api: CrudApi, queryClient: QueryClient) {
-  queryClient.clear();
-  // Both run even if one fails: a cache that cannot be closed must still be emptied.
+/** Empties one client's SDK cache (closing it first; a failed close must not skip the clear). */
+async function clearApiCache(api: CrudApi) {
   await api.cache.close().catch(() => undefined);
   await api.cache.clear();
+}
+
+/** Clears everything cached for the user the client and the query cache belong to. */
+async function clearUserData(api: CrudApi, queryClient: QueryClient) {
+  queryClient.clear();
+  await clearApiCache(api);
 }
 
 export function CrudApiProvider({ children }: { children: ReactNode }) {
@@ -40,30 +44,35 @@ export function CrudApiProvider({ children }: { children: ReactNode }) {
   // user is signed in but this app's API refuses them.
   const [forbidden, setForbidden] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // True while the browser is on its way to the login page: the 401 that
+  // started it also fails the build, and that failure is not worth an error.
+  const redirecting = useRef(false);
 
   useEffect(() => {
     // No `sub`, no scope: do not build a cached client (fail closed).
     if (!sub) return;
     let cancelled = false;
+    redirecting.current = false;
     createCrudApi({
       cacheScope: sub,
       // A final 401 means the session ended: sign in again, once. A second
       // one is an authorisation problem, not an expiry (src/auth/unauthorized.ts).
       onUnauthorized: (_response, info) => {
-        if (bounceToLogin(info) === "blocked" && !cancelled) setForbidden(true);
+        if (bounceToLogin(info) === "redirected") redirecting.current = true;
+        else if (!cancelled) setForbidden(true);
       },
     })
       .then((built) => {
         if (cancelled) {
-          void clearUserData(built, queryClient);
+          // Only this stale client's cache: the query cache is the live user's.
+          void clearApiCache(built).catch(() => undefined);
           return;
         }
-        clearBounce();
         setForbidden(false);
         setCreated({ sub, api: built });
       })
       .catch((err: unknown) => {
-        if (!cancelled)
+        if (!cancelled && !redirecting.current)
           setError(err instanceof Error ? err : new Error(String(err)));
       });
     return () => {
@@ -79,7 +88,7 @@ export function CrudApiProvider({ children }: { children: ReactNode }) {
     const unregister = registerTeardown(teardown);
     return () => {
       unregister();
-      void teardown();
+      void teardown().catch(() => undefined);
     };
   }, [api, queryClient]);
 

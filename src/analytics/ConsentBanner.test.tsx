@@ -123,6 +123,35 @@ describe("ConsentBanner", () => {
     );
   });
 
+  it("closes a reopened prompt without choosing, by button or Escape", async () => {
+    const calls = stubBff(true);
+    setup();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /analytics settings/i }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("region")).toBeNull();
+    const settings = await screen.findByRole("button", {
+      name: /analytics settings/i,
+    });
+    await waitFor(() => expect(settings).toHaveFocus());
+
+    await userEvent.click(settings);
+    await screen.findByRole("region");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(calls.filter((c) => c.startsWith("POST"))).toEqual([]);
+  });
+
+  it("offers no Close on the first ask: it needs an answer", async () => {
+    stubBff(false);
+    setup();
+
+    await screen.findByRole("region");
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
   it("keeps the prompt and says so when the choice could not be saved", async () => {
     stubBff(false, "fail");
     setup();

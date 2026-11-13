@@ -16,12 +16,13 @@ export function useRuntimeConfig(): RuntimeConfig {
 }
 
 /** How long startup waits for `/bff/config`; the page must not stay blank. */
-export const CONFIG_TIMEOUT_MS = 5_000;
+export const CONFIG_TIMEOUT_MS = 10_000;
 
 /**
  * The BFF's public config, `{}` when it cannot be read within
  * `CONFIG_TIMEOUT_MS` (the app still works, with the feature flags it reads
- * off: no analytics banner).
+ * off: no analytics prompt until a reload; the BFF still decides what is
+ * recorded, see ADR 0007's amendment).
  */
 export async function loadRuntimeConfig(
   fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init),

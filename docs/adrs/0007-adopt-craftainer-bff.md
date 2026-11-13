@@ -136,8 +136,11 @@ and a client built for another `sub` is never handed out. The app opens no
 event hub today; any future `invalidateOnEvents` / `subscribeEvents`
 unsubscribe is registered in the same registry.
 
-**Startup.** `/bff/config` gets a five second timeout; past it the app starts
-with an empty config (no analytics prompt) instead of a blank page.
+**Startup.** `/bff/config` gets a ten second timeout; past it the app starts
+with an empty config instead of a blank page. An empty config means no
+analytics prompt until a reload; the BFF still decides what is recorded (under
+`opt-in`, nothing without consent; under `implied`, as before the prompt
+existed).
 
 **`MODE`.** The "apps refuse to start when `MODE` is unset" decision (OWASP
 triage, 2026-11-04) applies to apps with a mode switch. This BFF has none: its

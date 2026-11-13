@@ -17,6 +17,7 @@ import {
   type Cache,
 } from "@craftainer/crud-sdk/cache";
 import { CSRF_HEADER, CSRF_VALUE } from "../auth/bff";
+import { clearBounce } from "../auth/unauthorized";
 
 /** The BFF's mount of the `crud` upstream; it strips this before proxying to the backend. */
 export const API_PREFIX = "/api/crud";
@@ -105,6 +106,19 @@ export const csrf: Middleware = (ctx, next) => {
 };
 
 /**
+ * Re-arms the 401 loop guard after a resource request succeeded. Discovery
+ * (the api-catalog and the manifest, which carry no resource) does not count:
+ * a signed-in user the data endpoints refuse can still read it, and clearing
+ * the marker then would let the login bounce repeat forever
+ * (src/auth/unauthorized.ts).
+ */
+export const rearmBounceGuard: Middleware = async (ctx, next) => {
+  const response = await next(ctx);
+  if (ctx.resource !== undefined && response.ok) clearBounce();
+  return response;
+};
+
+/**
  * Builds the cached client for the signed-in user. The cache copies its
  * policies when it is created and, since crud-sdk 0.9, must be handed to
  * `createClient({ cache })` (a late `client.use(cache.middleware)` is
@@ -128,7 +142,7 @@ export async function createCrudApi(options: CrudApiOptions): Promise<CrudApi> {
     ...(options.onUnauthorized
       ? { onUnauthorized: options.onUnauthorized }
       : {}),
-    middleware: [csrf],
+    middleware: [csrf, rearmBounceGuard],
   };
   const manifest = await createClient(common).manifest();
   // TanStack Query owns freshness, so the SDK cache only revalidates by ETag.
