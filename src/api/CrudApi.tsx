@@ -152,7 +152,12 @@ export function CrudApiProvider({ children }: { children: ReactNode }) {
   }
   return (
     <CrudApiContext.Provider value={api}>
-      <CrudProvider client={api.client} queryClient={queryClient} scope={sub}>
+      <CrudProvider
+        client={api.client}
+        queryClient={queryClient}
+        scope={sub}
+        etags={api.cache}
+      >
         {children}
       </CrudProvider>
     </CrudApiContext.Provider>

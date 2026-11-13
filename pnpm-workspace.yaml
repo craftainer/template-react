@@ -11,3 +11,9 @@ allowBuilds:
 # follows each release); the age floor protects against third-party packages.
 minimumReleaseAgeExclude:
   - "@craftainer/*"
+# Dependabot alert #3 (minimatch GHSA, < 11.0.1): glob@13 (via Storybook's
+# docgen plugin) pins minimatch ^10, which has no patched release. glob@14
+# already uses minimatch 11, so the same API is in use; drop this override
+# once glob 13 or its parent moves on.
+overrides:
+  "glob@13>minimatch": "11.0.8"

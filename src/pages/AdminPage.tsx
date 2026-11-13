@@ -31,7 +31,7 @@ import { useAuth } from "../auth/authContext";
 import { CrudApiProvider } from "../api/CrudApi";
 import { useCrudApi } from "../api/crudApiContext";
 import { mayDo, rolesFromUser } from "../api/roles";
-import { etagGetter, latestResources, rowEtagGetter } from "../api/sdk";
+import { latestResources } from "../api/sdk";
 import { useUrlParams } from "./useUrlParams";
 
 /** The signed-in caller's roles from `/bff/user`, `null` when unknown. */
@@ -191,11 +191,6 @@ function ResourceOverview({
   const { params, update } = useUrlParams(urlAdapter);
   const [creating, setCreating] = useState(false);
   const roles = useCallerRoles();
-  const api = useCrudApi();
-  const rowEtag = useMemo(
-    () => rowEtagGetter(api, ready.resource),
-    [api, ready.resource],
-  );
   const opening = useOpenOnClick((id) => update({ id }));
   const views = availableViews(ready);
   const requested = params.get("view") as View | null;
@@ -260,7 +255,6 @@ function ResourceOverview({
               filters={["quick"]}
               columns={columns}
               editable={mayDo(roles, ready.resource.auth.write_roles)}
-              ifMatch={rowEtag}
               urlAdapter={urlAdapter}
               prefix={`${name}_`}
               onRowClick={(row) => opening.click(String(row.id))}
@@ -293,13 +287,8 @@ function RecordPage({
   readonly id: number;
   readonly onBack: () => void;
 }) {
-  const api = useCrudApi();
   const { name } = ready.resource;
   const roles = useCallerRoles();
-  const etag = useMemo(
-    () => etagGetter(api, ready.resource),
-    [api, ready.resource],
-  );
 
   return (
     <Stack spacing={2}>
@@ -316,7 +305,6 @@ function RecordPage({
           <ResourceForm
             name={name}
             id={recordId}
-            etag={etag}
             recordLabel="record"
             onSaved={onDone}
           />

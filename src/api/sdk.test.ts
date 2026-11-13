@@ -1,14 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import { manifestFixture, recordFixtures } from "../pages/adminFixtures";
-import {
-  createCrudApi,
-  etagGetter,
-  rowEtagGetter,
-  latestResources,
-  withApiPrefix,
-} from "./sdk";
+import { createCrudApi, latestResources, withApiPrefix } from "./sdk";
 
 const ORIGIN = "https://app.test";
+
+/** The ETag the SDK cache holds for a record, as CrudProvider's `etags` reads it. */
+function etagGetter(
+  api: Awaited<ReturnType<typeof createCrudApi>>,
+  resource: { readonly name: string; readonly api_version: string },
+) {
+  return async (id: number) =>
+    api.cache.cachedEtag(
+      resource.name,
+      id,
+      await api.client.scope(),
+      resource.api_version,
+    );
+}
 
 describe("withApiPrefix", () => {
   it("moves a Request under /api/crud and keeps its method, headers and body", async () => {
@@ -244,61 +252,6 @@ describe("createCrudApi", () => {
 
     await heroes.update(1, { name: "Ada" }, { ifMatch: await etag(1) });
     expect(patches).toEqual(['"before"']);
-  });
-});
-
-describe("rowEtagGetter", () => {
-  async function setup() {
-    const { fetchFake } = backend();
-    const api = await createCrudApi({
-      cacheScope: "u1",
-      fetch: fetchFake,
-      origin: ORIGIN,
-    });
-    const heroes = await api.client.resource("heroes");
-    return { api, resource: heroes.resource };
-  }
-
-  it("reads the record once and returns the ETag the server gave", async () => {
-    const { api, resource } = await setup();
-
-    const etag = await rowEtagGetter(api, resource)({ ...recordFixtures[0] });
-
-    expect(etag).toBe('"before"');
-  });
-
-  it("refuses an edit when the cache holds no ETag for the record", async () => {
-    const { api, resource } = await setup();
-    const noEtags = {
-      client: api.client,
-      cache: { cachedEtag: async () => undefined },
-    } as unknown as Parameters<typeof rowEtagGetter>[0];
-
-    await expect(
-      rowEtagGetter(noEtags, resource)({ ...recordFixtures[0] }),
-    ).rejects.toThrow(/version/);
-  });
-
-  it("compares shown fields when a row has no updated_at", async () => {
-    const { api, resource } = await setup();
-    const { updated_at: _omitted, ...row } = recordFixtures[0];
-    void _omitted;
-
-    await expect(rowEtagGetter(api, resource)(row)).resolves.toBe('"before"');
-    await expect(
-      rowEtagGetter(api, resource)({ ...row, name: "Older name" }),
-    ).rejects.toThrow(/changed since the list loaded/);
-  });
-
-  it("refuses an edit of a row that changed since the list loaded", async () => {
-    const { api, resource } = await setup();
-
-    await expect(
-      rowEtagGetter(
-        api,
-        resource,
-      )({ ...recordFixtures[0], updated_at: "2025-12-31T00:00:00Z" }),
-    ).rejects.toThrow(/changed since the list loaded/);
   });
 });
 
