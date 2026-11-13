@@ -129,6 +129,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  glob@13>minimatch: 11.0.8
+
 importers:
   .:
     dependencies:
@@ -136,8 +139,8 @@ importers:
         specifier: 0.9.0
         version: 0.9.0(@tanstack/query-core@5.104.5)
       "@craftainer/crud-views":
-        specifier: 0.5.1
-        version: 0.5.1(5205fc538a319e64bd3cf69e2f17863a)
+        specifier: 0.7.0
+        version: 0.7.0(5205fc538a319e64bd3cf69e2f17863a)
       "@emotion/cache":
         specifier: 11.14.0
         version: 11.14.0
@@ -236,8 +239,8 @@ importers:
   bff:
     dependencies:
       "@craftainer/bff":
-        specifier: 0.2.0
-        version: 0.2.0
+        specifier: 0.3.0
+        version: 0.3.0
 
 packages:
   "@adobe/css-tools@4.5.0":
@@ -411,10 +414,10 @@ packages:
       }
     hasBin: true
 
-  "@craftainer/bff@0.2.0":
+  "@craftainer/bff@0.3.0":
     resolution:
       {
-        integrity: sha512-i9aj4PEpkKmQ2J6Q2urt3E9Up8kYdaseU0+ed/Dt4GagWuBZReTQ9UccAalfP1Syqes4ZhXSXQZ/niJo0ltsvQ==,
+        integrity: sha512-xFdeBu1lRivSkNovdcDBIAt21cSiltjiq6+0va8YyN9AKQdcytLDle9vXiy/YzP0bgp9OBcJFKH5xv56ARWNvA==,
       }
     engines: { node: ">=24.22.0" }
     peerDependencies:
@@ -439,14 +442,14 @@ packages:
       json-schema-to-typescript:
         optional: true
 
-  "@craftainer/crud-views@0.5.1":
+  "@craftainer/crud-views@0.7.0":
     resolution:
       {
-        integrity: sha512-c4fOLaHqkhtlLYe8Q8sDr6mfe+zoDf7H9Wr5RjX1HM2Fs131G5+p08+CYfyfPoSDfF1cIVw1ssh+Y2uIuyApSA==,
+        integrity: sha512-SxJcuWWWnbb74fXLvLDTFikwQBh1SBXjQN6m2PKEbUQCVaLEdF+uUUsPGspE4wReQ4tvoQSraF7Y/79WsQglKg==,
       }
     engines: { node: ">=24.22.0" }
     peerDependencies:
-      "@craftainer/crud-sdk": ^0.4.0 || ^0.5.0
+      "@craftainer/crud-sdk": ^0.4.0 || ^0.5.0 || ^0.6.0
       "@emotion/react": ^11.14.0
       "@emotion/styled": ^11.14.0
       "@mui/material": ^9.4.0
@@ -963,10 +966,10 @@ packages:
         integrity: sha512-zOB8L9z444PnGbd1Nd7gNXPz/7bnDR8Z4KNTNSwLVQuE3cTGsU9qUj1N4SjXKK0Tq4cauZYTwB+tqvlqosuKsw==,
       }
 
-  "@fastify/static@10.1.8":
+  "@fastify/static@10.1.10":
     resolution:
       {
-        integrity: sha512-3CbgWOXJX8f46xxsuOgQl9h0lyQQiABMG40kxRF5PWJk4LyBW5m3mLZoW5glnm2TUTC1gVFCBnqOt5S6zIIIrg==,
+        integrity: sha512-CGwOoZiKg5m4SAqeiS8bzCSKDa71DMFQ7QeVsuWBOrfFu32DpVZWFFb0cpEg7e54YK6HZZsl4g/wfoKMnRQMUw==,
       }
 
   "@floating-ui/utils@0.2.12":
@@ -991,6 +994,12 @@ packages:
     resolution:
       {
         integrity: sha512-/B9W4qKSSITDii5nkBCHyPkIkAi+ealUtr1oqBJsLxjSRLka4pxun2VvMNSmcwgAMxgXtQfl0qRv7TE+udPJzg==,
+      }
+
+  "@isaacs/nonrecursive-glob-match@1.1.0":
+    resolution:
+      {
+        integrity: sha512-GPm/Dbvk5RLmhRnxXIa7nTpK0xtl4E0wj0MslsuNiJ1FIROU+2+9lgUC/dgF7Ey4QCWhfEsgxilMRMCdHPfDfw==,
       }
 
   "@joshwooding/vite-plugin-react-docgen-typescript@0.7.0":
@@ -3043,6 +3052,13 @@ packages:
       }
     engines: { node: 18 || 20 || >=22 }
 
+  glob@14.0.5:
+    resolution:
+      {
+        integrity: sha512-nbKW5Sl53DEM5PkmZ5Jwfeyss1ohuqcgOBjOarSjz1fp8W4ss4EOOvKADQRbApD6JmVBX+HkpZYfBez4wXbeQQ==,
+      }
+    engines: { node: 18 || 20 || >=22 }
+
   hasown@2.0.4:
     resolution:
       {
@@ -3418,12 +3434,12 @@ packages:
       }
     engines: { node: ">=4" }
 
-  minimatch@10.2.6:
+  minimatch@11.0.8:
     resolution:
       {
-        integrity: sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==,
+        integrity: sha512-nFQuYSTVrGvysVBps5Ih+0BdnYFN/Cj3C816r6+p7yK+FHrVLGE4O4N9AFwykrlNlvM2HYt+Rad1Uiro6h88Ig==,
       }
-    engines: { node: 18 || 20 || >=22 }
+    engines: { node: 20 || >=22 }
 
   minimist@1.2.8:
     resolution:
@@ -3590,6 +3606,13 @@ packages:
     resolution:
       {
         integrity: sha512-3O/iVVsJAPsOnpwWIeD+d6z/7PmqApyQePUtCndjatj/9I5LylHvt5qluFaBT3I5h3r1ejfR056c+FCv+NnNXg==,
+      }
+    engines: { node: 18 || 20 || >=22 }
+
+  path-scurry@3.0.0:
+    resolution:
+      {
+        integrity: sha512-1pTbQqH1wIwMi/eleQ5leFTTCkzFsPcgXNjwOA8YGGW/W4/kHT3dssE7Z6NH+zuqNLOzOB0uaD61yl7cAcVhgg==,
       }
     engines: { node: 18 || 20 || >=22 }
 
@@ -4520,13 +4543,13 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  "@craftainer/bff@0.2.0":
+  "@craftainer/bff@0.3.0":
     dependencies:
       "@fastify/cookie": 11.1.5
       "@fastify/formbody": 9.0.1
       "@fastify/rate-limit": 11.2.2
       "@fastify/reply-from": 12.8.1
-      "@fastify/static": 10.1.8
+      "@fastify/static": 10.1.10
       fastify: 5.12.8
       fastify-plugin: 6.0.1
       iovalkey: 0.4.0
@@ -4540,7 +4563,7 @@ snapshots:
     optionalDependencies:
       "@tanstack/query-core": 5.104.5
 
-  "@craftainer/crud-views@0.5.1(5205fc538a319e64bd3cf69e2f17863a)":
+  "@craftainer/crud-views@0.7.0(5205fc538a319e64bd3cf69e2f17863a)":
     dependencies:
       "@craftainer/crud-sdk": 0.9.0(@tanstack/query-core@5.104.5)
       "@emotion/react": 11.14.0(@types/react@19.2.18)(react@19.2.8)
@@ -4833,7 +4856,7 @@ snapshots:
       http-errors: 2.0.1
       mime: 3.0.0
 
-  "@fastify/static@10.1.8":
+  "@fastify/static@10.1.10":
     dependencies:
       "@fastify/accept-negotiator": 2.1.2
       "@fastify/error": 4.2.1
@@ -4841,7 +4864,7 @@ snapshots:
       content-disposition: 3.0.0
       fastify-plugin: 6.0.1
       fastq: 1.20.3
-      glob: 13.0.6
+      glob: 14.0.5
 
   "@floating-ui/utils@0.2.12": {}
 
@@ -4850,6 +4873,8 @@ snapshots:
   "@fontsource-variable/instrument-sans@5.3.0": {}
 
   "@iovalkey/commands@0.1.0": {}
+
+  "@isaacs/nonrecursive-glob-match@1.1.0": {}
 
   "@joshwooding/vite-plugin-react-docgen-typescript@0.7.0(typescript@6.0.3)(vite@8.2.4(@types/node@24.13.3)(esbuild@0.28.2))":
     dependencies:
@@ -5946,9 +5971,15 @@ snapshots:
 
   glob@13.0.6:
     dependencies:
-      minimatch: 10.2.6
+      minimatch: 11.0.8
       minipass: 7.1.3
       path-scurry: 2.0.2
+
+  glob@14.0.5:
+    dependencies:
+      minimatch: 11.0.8
+      minipass: 7.1.3
+      path-scurry: 3.0.0
 
   hasown@2.0.4:
     dependencies:
@@ -6149,8 +6180,9 @@ snapshots:
 
   min-indent@1.0.1: {}
 
-  minimatch@10.2.6:
+  minimatch@11.0.8:
     dependencies:
+      "@isaacs/nonrecursive-glob-match": 1.1.0
       brace-expansion: 5.0.12
 
   minimist@1.2.8: {}
@@ -6288,6 +6320,11 @@ snapshots:
   path-parse@1.0.7: {}
 
   path-scurry@2.0.2:
+    dependencies:
+      lru-cache: 11.5.2
+      minipass: 7.1.3
+
+  path-scurry@3.0.0:
     dependencies:
       lru-cache: 11.5.2
       minipass: 7.1.3

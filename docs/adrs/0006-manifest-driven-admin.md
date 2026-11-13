@@ -68,16 +68,18 @@ Four facts about the libraries and the app shaped the wiring:
   `bridgeEvents` are not wired: the lists refetch on focus and after each
   mutation, which is enough for an admin, and an event stream would need the
   authenticated `fetch` and a second connection per resource.
-- **ETags.** `etagGetter` returns `cache.cachedEtag(...)` for the record the
-  form just read, and is passed as `etag` to every `ResourceForm` (including
-  the one `RecordDetail` mounts). A stale save fails with 412 and the form
-  shows the conflict. **Inline edit in the table is on** for callers whose roles
-  may write: `rowEtagGetter` reads the record by id (the SDK cache keeps its
-  ETag), refuses the edit when that read no longer matches (by `updated_at`, else by the shown fields) the row the user
-  edited (the record changed since the list loaded, and an ETag taken now would
-  let the edit overwrite that change), and otherwise returns
-  `cache.cachedEtag(...)` as `If-Match`; a 412 from a race shows as a save
-  error. Because a double click both opens a record and starts an edit,
+- **ETags.** `CrudProvider` gets the SDK cache as `etags`, so
+  `@craftainer/crud-views` 0.7 reads each record's last validator from it and
+  sends it as `If-Match` on every write to a resource that declares
+  `conditional_requests`; it never sends such a write without one (it raises
+  `MissingEtagError`). The form reads the record right before each save and
+  treats any change since it loaded as a conflict; a `412` raises
+  `StaleRecordError` and the form shows it, and Overwrite re-reads the record
+  and sends its current ETag. **Inline edit in the table is on** for callers
+  whose roles may write: the table reads the record before the edit and
+  refuses it when the edited field changed since the list loaded; a `412`
+  from a race shows as a save error. The app passes no `etag` or `ifMatch`
+  callback (the library's own check is stricter than a cached lookup). Because a double click both opens a record and starts an edit,
   opening waits 300 ms and a double click or an edit in progress cancels it.
 - **Vite adds `Vary: Origin`.** Vite's dev and preview servers add it to every
   response, proxied ones included, and the SDK cache refuses to store a
@@ -132,7 +134,7 @@ Four facts about the libraries and the app shaped the wiring:
   not supported.
 - The e2e journey covers inline edit (conditional save, and a refusal after
   an outside change); jsdom cannot render the DataGrid's rows, so the unit
-  tests cover `rowEtagGetter` and the stories do not edit cells.
+  tests do not cover it and the stories do not edit cells.
 - The e2e needs template-fastapi (MODE=dev, with Postgres and Keycloak), a
   Valkey and Docker for the Playwright image; `tests/e2e/lane.sh` brings them up.
   It is not part of `prek` and runs in the verification lane
