@@ -63,10 +63,26 @@ export function withApiPrefix(
 }
 
 export interface CrudApiOptions {
-  /** The signed-in user's `sub`: scopes the SDK cache and the query keys. */
-  readonly cacheScope?: string | undefined;
-  /** Runs on a final 401 (the session ended): navigate to login. */
-  readonly onUnauthorized?: (() => void | Promise<void>) | undefined;
+  /**
+   * The signed-in user's `sub`: scopes the SDK cache and the query keys. It
+   * is required and must be non-empty: a cached cookie-session client without
+   * a scope would share one cache between users, so `createCrudApi` refuses
+   * to build one (fail closed) rather than fall back to a shared scope. This
+   * app's data is per user, never public, so `"shared"` is not used.
+   */
+  readonly cacheScope: string;
+  /**
+   * Runs on a final 401 (the session ended). The SDK passes `attempt` (the
+   * 1-based count of calls) and the request `url` and suppresses repeats
+   * until a request succeeds; see src/auth/unauthorized.ts for the guard
+   * that decides between a login bounce and an error.
+   */
+  readonly onUnauthorized?:
+    | ((
+        response: Response,
+        info: { readonly attempt: number; readonly url: string },
+      ) => void | Promise<void>)
+    | undefined;
   readonly fetch?: Fetch | undefined;
   readonly origin?: string | undefined;
 }
@@ -89,26 +105,32 @@ export const csrf: Middleware = (ctx, next) => {
 };
 
 /**
- * Builds the client, loads the caller's manifest, then adds the cache. The
- * cache copies its policies when it is created, so it can only be built once
- * the manifest names the resources; `client.use` puts it innermost, after the
- * CSRF middleware.
+ * Builds the cached client for the signed-in user. The cache copies its
+ * policies when it is created and, since crud-sdk 0.9, must be handed to
+ * `createClient({ cache })` (a late `client.use(cache.middleware)` is
+ * rejected), while the policies come from the manifest. So a first client
+ * with no cache loads the manifest and a second one carries the cache. The
+ * second client discovers the manifest again; that is two extra small GETs
+ * per load, the price of the scope check running at construction.
  */
 export async function createCrudApi(options: CrudApiOptions): Promise<CrudApi> {
+  if (!options.cacheScope) {
+    throw new Error(
+      "createCrudApi needs a non-empty cacheScope (the user's sub)",
+    );
+  }
   const origin = options.origin ?? window.location.origin;
-  const client = createClient({
+  const common = {
     baseUrl: origin,
     fetch: withApiPrefix(options.fetch, origin),
-    credentials: "include",
-    // `cacheScope` must be a non-empty string, so a missing `sub` leaves the
-    // SDK's own anonymous scope.
-    ...(options.cacheScope ? { cacheScope: options.cacheScope } : {}),
+    credentials: "include" as const,
+    cacheScope: options.cacheScope,
     ...(options.onUnauthorized
       ? { onUnauthorized: options.onUnauthorized }
       : {}),
     middleware: [csrf],
-  });
-  const manifest = await client.manifest();
+  };
+  const manifest = await createClient(common).manifest();
   // TanStack Query owns freshness, so the SDK cache only revalidates by ETag.
   const policies = Object.fromEntries(
     manifest.resources.map((resource) => [
@@ -117,7 +139,7 @@ export async function createCrudApi(options: CrudApiOptions): Promise<CrudApi> {
     ]),
   );
   const cache = createCache({ store: new MemoryStore(), policies });
-  client.use(cache.middleware).use(cache.autoIfMatch);
+  const client = createClient({ ...common, cache });
   return { client, cache, manifest };
 }
 

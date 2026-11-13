@@ -1,5 +1,7 @@
 // React side of src/api/sdk.ts: builds the SDK client once per signed-in
 // user, waits for the manifest, then provides it to @craftainer/crud-views.
+// A client is never built without the user's `sub` (the cache scope), and its
+// cache and the query cache are cleared when the user changes or signs out.
 import { useEffect, useState, type ReactNode } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -8,28 +10,57 @@ import CircularProgress from "@mui/material/CircularProgress";
 import { QueryClient } from "@tanstack/react-query";
 import { CrudProvider } from "@craftainer/crud-views";
 import { useAuth } from "../auth/authContext";
-import { redirectToLogin } from "../auth/bff";
+import { registerTeardown } from "../auth/teardown";
+import { bounceToLogin, clearBounce } from "../auth/unauthorized";
 import { CrudApiContext } from "./crudApiContext";
 import { createCrudApi, type CrudApi } from "./sdk";
+
+/** Clears everything cached for the user these belong to. */
+async function clearUserData(api: CrudApi, queryClient: QueryClient) {
+  queryClient.clear();
+  // Both run even if one fails: a cache that cannot be closed must still be emptied.
+  await api.cache.close().catch(() => undefined);
+  await api.cache.clear();
+}
 
 export function CrudApiProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const sub = auth.user?.sub;
 
   const [queryClient] = useState(() => new QueryClient());
-  const [api, setApi] = useState<CrudApi | null>(null);
+  // The client is tied to the `sub` it was built for: after a user change the
+  // old one is never handed out, even for a render.
+  const [created, setCreated] = useState<{
+    readonly sub: string;
+    readonly api: CrudApi;
+  } | null>(null);
+  const api = created && created.sub === sub ? created.api : null;
   const [error, setError] = useState<Error | null>(null);
+  // Set when the login bounce already happened once and a 401 came back: the
+  // user is signed in but this app's API refuses them.
+  const [forbidden, setForbidden] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    // No `sub`, no scope: do not build a cached client (fail closed).
+    if (!sub) return;
     let cancelled = false;
     createCrudApi({
       cacheScope: sub,
-      // A final 401 means the session ended: sign in again.
-      onUnauthorized: () => redirectToLogin(),
+      // A final 401 means the session ended: sign in again, once. A second
+      // one is an authorisation problem, not an expiry (src/auth/unauthorized.ts).
+      onUnauthorized: (_response, info) => {
+        if (bounceToLogin(info) === "blocked" && !cancelled) setForbidden(true);
+      },
     })
-      .then((created) => {
-        if (!cancelled) setApi(created);
+      .then((built) => {
+        if (cancelled) {
+          void clearUserData(built, queryClient);
+          return;
+        }
+        clearBounce();
+        setForbidden(false);
+        setCreated({ sub, api: built });
       })
       .catch((err: unknown) => {
         if (!cancelled)
@@ -38,8 +69,50 @@ export function CrudApiProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [attempt, sub]);
+  }, [attempt, sub, queryClient]);
 
+  // The cache and the query cache hold this user's records: clear them when
+  // the user changes, on unmount, and (through the registry) on logout.
+  useEffect(() => {
+    if (!api) return;
+    const teardown = () => clearUserData(api, queryClient);
+    const unregister = registerTeardown(teardown);
+    return () => {
+      unregister();
+      void teardown();
+    };
+  }, [api, queryClient]);
+
+  if (!sub) {
+    return (
+      <Alert severity="error">
+        Your sign-in did not include an identity, so the API was not loaded.
+        Sign out and sign in again.
+      </Alert>
+    );
+  }
+  if (forbidden) {
+    return (
+      <Alert
+        severity="error"
+        action={
+          <Button
+            color="inherit"
+            size="small"
+            onClick={() => {
+              clearBounce();
+              auth.login();
+            }}
+          >
+            Sign in again
+          </Button>
+        }
+      >
+        You are signed in, but not authorised to use this app&rsquo;s API. Ask
+        an administrator for access, or sign in with another account.
+      </Alert>
+    );
+  }
   if (error) {
     return (
       <Alert

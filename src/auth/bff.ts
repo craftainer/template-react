@@ -112,10 +112,18 @@ function httpUrl(value: unknown): string | null {
   }
 }
 
-/** Logs out and navigates to the identity provider's logout page. */
+/**
+ * Logs out and navigates to the identity provider's logout page. `afterLogout`
+ * runs once the BFF has ended the session and before the navigation (clear
+ * caches there); it never runs when the logout request failed, because the
+ * session is then still live.
+ */
 export async function logout(
   fetchImpl?: Fetch,
   navigate: Assign = assign,
+  afterLogout: () => void | Promise<void> = () => undefined,
 ): Promise<void> {
-  navigate(await requestLogout(fetchImpl));
+  const href = await requestLogout(fetchImpl);
+  await afterLogout();
+  navigate(href);
 }

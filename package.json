@@ -20,7 +20,7 @@
     "storybook:build": "storybook build"
   },
   "dependencies": {
-    "@craftainer/crud-sdk": "0.8.0",
+    "@craftainer/crud-sdk": "0.9.0",
     "@craftainer/crud-views": "0.5.1",
     "@emotion/cache": "11.14.0",
     "@emotion/react": "11.14.0",

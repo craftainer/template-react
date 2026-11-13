@@ -140,3 +140,15 @@ Four facts about the libraries and the app shaped the wiring:
 - Without a router, a record or view is not a path (`/heroes/1`); links are
   query strings. Adding a router later means replacing `useUrlParams` and
   passing the router's adapter to the lists.
+
+## Amendment: the cache goes in at construction (crud-sdk 0.9, OF1)
+
+crud-sdk 0.9 rejects a late `client.use(cache.middleware)`, because the
+cache-scope check has to run when the client is built (`createClient({ cache })`
+wires the cache innermost itself). The cache still needs the manifest for its
+per-resource policies, so `createCrudApi` (`src/api/sdk.ts`) builds a first
+client without a cache to load the manifest and a second one carrying the
+cache, both with the same `cacheScope` (the BFF user's `sub`, required and
+non-empty) and `onUnauthorized`. The cost is one extra api-catalog and
+manifest request per page load. See ADR 0007's amendment for the 401 guard
+and the logout teardown.

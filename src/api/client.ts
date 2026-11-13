@@ -3,7 +3,8 @@
 // (vite.config.ts) and the BFF itself serves the app in the image -- so this
 // client never needs the backend's own origin, holds no token (the session is
 // an HttpOnly cookie) and the backend never needs CORS configured for this app.
-import { CSRF_HEADER, CSRF_VALUE, redirectToLogin } from "../auth/bff";
+import { CSRF_HEADER, CSRF_VALUE } from "../auth/bff";
+import { bounceToLogin } from "../auth/unauthorized";
 import { API_PREFIX } from "./sdk";
 
 export class ApiError extends Error {
@@ -21,7 +22,7 @@ export class ApiError extends Error {
 /**
  * Fetch `path` (relative to `/api/crud`) with the session cookie and
  * `X-CSRF`, parsing a JSON response. A 401 means the session ended: it
- * navigates to login unless `redirectOnUnauthorized` is false (a probe that
+ * navigates to login once (see src/auth/unauthorized.ts) unless `redirectOnUnauthorized` is false (a probe that
  * must work signed out).
  */
 export async function apiFetch<T>(
@@ -42,7 +43,8 @@ export async function apiFetch<T>(
     headers,
   });
 
-  if (response.status === 401 && redirectOnUnauthorized) redirectToLogin();
+  // One bounce only (the loop guard); a repeat falls through to the ApiError.
+  if (response.status === 401 && redirectOnUnauthorized) bounceToLogin();
 
   if (!response.ok) {
     // RFC 9457 Problem Details -- see the backend's app.problem_details.

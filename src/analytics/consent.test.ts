@@ -1,7 +1,14 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fetchConsent, saveConsent, useConsent } from "./consent";
+import {
+  ANSWERED_KEY,
+  fetchConsent,
+  hasAnswered,
+  markAnswered,
+  saveConsent,
+  useConsent,
+} from "./consent";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -62,7 +69,7 @@ describe("useConsent", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("stores a choice, and falls back to unknown when saving fails", async () => {
+  it("stores a choice, and keeps the previous one when saving fails", async () => {
     const responses = [
       json({ analytics: false }),
       json({ analytics: true }),
@@ -75,8 +82,29 @@ describe("useConsent", () => {
     await act(() => result.current.choose(true));
     expect(result.current.granted).toBe(true);
 
-    await act(() => result.current.choose(false));
-    expect(result.current.granted).toBeNull();
+    let saved: boolean | null = true;
+    await act(async () => {
+      saved = await result.current.choose(false);
+    });
+    expect(saved).toBeNull();
+    expect(result.current.granted).toBe(true);
+  });
+
+  it("is ready once the first read settled, even a failed one, and after a choice that pre-empts it", async () => {
+    const failing = vi.fn(async () => json({}, 503));
+    const a = renderHook(() => useConsent(failing));
+    expect(a.result.current.ready).toBe(false);
+    await waitFor(() => expect(a.result.current.ready).toBe(true));
+    expect(a.result.current.granted).toBeNull();
+
+    const never = vi.fn((_url: unknown, init?: RequestInit) =>
+      init?.method === "POST"
+        ? Promise.resolve(json({}, 500))
+        : new Promise<Response>(() => {}),
+    ) as unknown as typeof fetch;
+    const b = renderHook(() => useConsent(never));
+    await act(() => b.result.current.choose(true));
+    expect(b.result.current.ready).toBe(true);
   });
 
   it("ignores a slow mount-time GET that resolves after a choice", async () => {
@@ -95,5 +123,36 @@ describe("useConsent", () => {
 
     await act(async () => releaseGet(json({ analytics: false })));
     expect(result.current.granted).toBe(true);
+  });
+});
+
+describe("answered flag", () => {
+  it("remembers that the visitor was asked, not what they chose", () => {
+    const data = new Map<string, string>();
+    const store = {
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => void data.set(k, v),
+    };
+    expect(hasAnswered(store)).toBe(false);
+
+    markAnswered(store);
+
+    expect(hasAnswered(store)).toBe(true);
+    expect([...data.entries()]).toEqual([[ANSWERED_KEY, "1"]]);
+  });
+
+  it("treats unavailable or throwing storage as not asked", () => {
+    const broken = {
+      getItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      setItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    };
+    expect(hasAnswered(broken)).toBe(false);
+    expect(hasAnswered(null)).toBe(false);
+    expect(() => markAnswered(broken)).not.toThrow();
+    expect(() => markAnswered(null)).not.toThrow();
   });
 });
