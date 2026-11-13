@@ -27,6 +27,9 @@ function bffEnv(server: { origin: string; port: number }, extra: object = {}) {
       crud: {
         url: laneEnv("E2E_API_URL"),
         audience: "api",
+        // The backend gets a token exchanged for the `api` audience, not the
+        // session's own (RFC 8693; exchange.e2e.ts).
+        tokenExchange: true,
         methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       },
     }),

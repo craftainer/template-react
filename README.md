@@ -80,7 +80,8 @@ in short:
 - **Both repos' devcontainers open side by side** (the common case): no
   configuration needed. `.devcontainer/compose.instance.yml` gives the dev
   BFF (`pnpm dev:bff`, port 8787) its environment: the backend at
-  `http://host.docker.internal:8000` (`BFF_UPSTREAMS`), template-fastapi's
+  `http://host.docker.internal:8000` (`BFF_UPSTREAMS`, with `tokenExchange`
+  on so the backend gets its own `api`-audience token, not the session's), template-fastapi's
   Keycloak realm at port 8080, its dev-only `bff` client secret, and the
   Valkey service. `pnpm dev` then serves the SPA on 5173 and proxies
   `/bff`, `/api` and `/.well-known` to the BFF.

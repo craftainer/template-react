@@ -37,7 +37,10 @@ services:
       # Plain-http IdP: development only (refused when NODE_ENV=production).
       OIDC_ALLOW_INSECURE: "true"
       BFF_PORT: "8787"
-      BFF_UPSTREAMS: '{"crud":{"url":"http://host.docker.internal:8000","audience":"api","methods":["GET","POST","PUT","PATCH","DELETE"]}}'
+      # tokenExchange: the BFF swaps the session token for one scoped to
+      # `audience` (RFC 8693; RFC 9700 / BCP 212). Needs the realm's `bff` client
+      # to have standard token exchange on (template-fastapi's realm-export.json).
+      BFF_UPSTREAMS: '{"crud":{"url":"http://host.docker.internal:8000","audience":"api","tokenExchange":true,"methods":["GET","POST","PUT","PATCH","DELETE"]}}'
       # The BFF's session store. Plaintext is the documented dev-only opt-out
       # (the BFF refuses plaintext non-loopback URLs otherwise); see
       # stack/valkey/README.md.
