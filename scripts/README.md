@@ -65,7 +65,8 @@
   `image-dast.sh` say so on failure.
 - `check-dockerfile-versions.sh ARG...` — fails when a named `ARG` default
   differs between `.devcontainer/Dockerfile` and the top-level `Dockerfile`.
-- `develop.d/10-corepack.sh` — enables pnpm via Corepack in the
+- `develop.d/10-corepack.sh` — enables pnpm via Corepack (installed from npm when
+  the Node lacks it, as from Node 25) in the
   devcontainer image; `post-create.d/10-pnpm-install.sh` — installs the
   app's dependencies. Both template-react's own, run by the hooks above.
 

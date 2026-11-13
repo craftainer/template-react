@@ -28,7 +28,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          corepack enable
+          # Node 25+ no longer ships Corepack, and this image's Node may be
+          # newer than the devcontainer's, so install the pnpm that
+          # package.json's `packageManager` pins directly with npm.
+          pnpm_version=$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '').replace(/\+.*/, '')")
+          npm install --global --no-audit --no-fund --silent "pnpm@${pnpm_version}"
           pnpm install --frozen-lockfile
 
       - name: Build Storybook
