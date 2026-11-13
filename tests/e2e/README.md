@@ -50,6 +50,17 @@ browser.
     the allowlist and other malformed events, 413 above 16 KB, 403 without
     `X-CSRF`; and the SPA's page views carry bare paths such as
     `/heroes/trash`, never ids or queries.
+  - `guard.e2e.ts` — the SPA's 401 loop guard: a session ended behind the SPA's back
+    costs one silent bounce through Keycloak and re-arms on the first resource 2xx;
+    a 401 that persists (injected in the browser for the heroes resource, the lane
+    has no real one) fails closed with "signed in, but not authorised", survives a
+    reload without bouncing, and clears only through the manual sign-in and a
+    resource 2xx; a user without the role (`security`) gets a 403 "Insufficient
+    role" and no bounce.
+  - `consent.e2e.ts` — the analytics consent prompt: shown in `implied` mode before
+    any choice with Allow and Decline styled alike, the choice kept in the BFF's
+    cookie across a reload and a second tab, the settings button reopening it
+    (replace or Close/Escape), and none for a Global Privacy Control browser.
   - `admin.e2e.ts` — the manifest-driven admin (ADR 0006) through the BFF: create,
     conditional inline and form edits, a 412 after an out-of-band change, archive
     and the trash, statistics.
