@@ -36,6 +36,14 @@
   Playwright screenshot and axe suite (`tests/visual/`) inside the pinned
   Playwright image on the `arm64` runner, uploading the HTML report on
   failure (see `docs/adrs/0005-storybook-visual-regression-and-axe.md`).
+- `e2e.yml` — template-react only, instance-owned: runs the real-stack
+  Playwright lane (`tests/e2e/`) on the host runner on pull requests and
+  pushes to `main`: checks out template-fastapi (`main`, or the
+  `fastapi_ref` dispatch input) read-only and unauthenticated into
+  `E2E_FASTAPI_DIR`, builds the SPA, then `lane.sh up`, `run.sh`, and
+  `lane.sh down` in an `always()` step; uploads the Playwright report and
+  traces on failure. One run, never `--repeat-each` (the crud server rate-limits
+  writes to 20/min).
 - `moderate-bug-triage.yml` / `moderate-bug-fix.yml` /
   `moderate-feature-triage.yml` / `moderate-feature-build.yml` /
   `moderate-cleanup.yml` / `moderate-setup.yml` — see "Issue moderation"
