@@ -1,6 +1,6 @@
 // One journey through the manifest-driven admin (ADR 0006), signed in as the
 // dev realm's maintainer (password == username) through the BFF: sign in
-// through Keycloak, create, edit with a conditional save, hit a 412 after an
+// through Keycloak, create, edit with a conditional save, hit a refused save after an
 // out-of-band change, archive and see the record in the trash. The browser
 // only ever talks to the BFF; the out-of-band changes go to the backend
 // directly with a bearer token.
@@ -47,11 +47,18 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   await expect(dialog).toBeHidden();
 
   // Find it with the quick search, then open it.
+  // The search is debounced: wait for the filtered list, so no later reload of
+  // it can land between the out-of-band change below and the edit.
+  const filtered = page.waitForResponse(
+    (r) =>
+      r.request().method() === "GET" && r.url().includes("name__icontains"),
+  );
   await page
     .getByRole("searchbox")
     .or(page.getByPlaceholder(/search/i))
     .first()
     .fill(name);
+  await filtered;
   const row = page.getByRole("row", { name: new RegExp(name) });
   await expect(row).toBeVisible();
 
@@ -71,17 +78,20 @@ test("the admin creates, edits, conflicts and archives a record", async ({
     page.getByRole("row", { name: new RegExp(inlineName) }),
   ).toBeVisible();
 
-  // Someone else changes the record after the list loaded: the next inline
-  // edit is refused and sends nothing.
+  await page.waitForLoadState("networkidle"); // the reload after the save has landed
+
+  // Someone else changes the same field after the list loaded: the next inline
+  // edit is refused, sends nothing, and the reloaded row shows the other value.
   const heroes = `${laneEnv("E2E_API_URL")}${HEROES_DIRECT}`;
   const found = await request.get(
     `${heroes}?name=${encodeURIComponent(inlineName)}`,
     { headers: { Authorization: await bearer(request, "maintainer") } },
   );
   const rowId = ((await found.json()) as { id: number }[])[0]!.id;
+  const elsewhereName = `${inlineName} elsewhere`;
   const elsewhere = await request.patch(`${heroes}?id=${rowId}`, {
     headers: { Authorization: await bearer(request, "maintainer") },
-    data: { power_level: 7 },
+    data: { name: elsewhereName },
   });
   expect(elsewhere.ok()).toBeTruthy();
   const patches: string[] = [];
@@ -96,14 +106,47 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   await page.keyboard.press("End");
   await page.keyboard.type(" again");
   await page.keyboard.press("Enter");
-  await expect(page.getByText(/changed since the list loaded/)).toBeVisible();
+  await expect(
+    page.getByText(
+      "This row changed elsewhere. It was reloaded; edit it again.",
+    ),
+  ).toBeVisible();
   expect(patches).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("row", { name: new RegExp(elsewhereName) }),
+  ).toBeVisible();
+
+  // Someone else changes another field: the checks are per field, so an edit
+  // of the name still goes through, with the ETag of the fresh record.
+  const elsewhereLevel = await request.patch(`${heroes}?id=${rowId}`, {
+    headers: { Authorization: await bearer(request, "maintainer") },
+    data: { power_level: 7 },
+  });
+  expect(elsewhereLevel.status(), await elsewhereLevel.text()).toBe(200);
+  const otherField = page.waitForResponse(
+    (r) => r.request().method() === "PATCH" && r.status() === 200,
+    { timeout: 20_000 },
+  );
+  await page
+    .getByRole("row", { name: new RegExp(elsewhereName) })
+    .getByRole("gridcell")
+    .first()
+    .dblclick();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" again");
+  await page.keyboard.press("Enter");
+  expect((await otherField).request().headers()["if-match"]).toBeTruthy();
+  const currentName = `${elsewhereName} again`;
+  await expect(
+    page.getByRole("row", { name: new RegExp(currentName) }),
+  ).toBeVisible();
 
   // Leave the editor; a click that ends an edit does not open the record.
   await page.keyboard.press("Escape");
   await page.waitForTimeout(500);
 
-  await page.getByRole("row", { name: new RegExp(inlineName) }).click();
+  await page.getByRole("row", { name: new RegExp(currentName) }).click();
   await expect(page).toHaveURL(/[?&]id=\d+/);
   const id = new URL(page.url()).searchParams.get("id");
 
@@ -111,7 +154,7 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   const field = page
     .getByRole("form", { name: /edit record/i })
     .getByLabel("Name");
-  await expect(field).toHaveValue(inlineName);
+  await expect(field).toHaveValue(currentName);
   await field.fill(`${name} edited`);
   const saved = page.waitForResponse(
     (r) => r.request().method() === "PATCH" && r.status() === 200,
@@ -120,19 +163,22 @@ test("the admin creates, edits, conflicts and archives a record", async ({
   expect((await saved).request().headers()["if-match"]).toBeTruthy();
   await expect(field).toHaveValue(`${name} edited`);
 
-  // Change the record behind the UI's back: the next save must be refused.
+  // Change the record behind the UI's back: the save reads the record first,
+  // sees it differ from what the form loaded, and sends nothing. Reload
+  // discards the edit and shows what the other writer saved.
   const patched = await request.patch(`${heroes}?id=${id}`, {
     headers: { Authorization: await bearer(request, "maintainer") },
     data: { power_level: 99 },
   });
   expect(patched.ok()).toBeTruthy();
   await field.fill(`${name} conflicting`);
-  const refused = page.waitForResponse(
-    (r) => r.request().method() === "PATCH" && r.status() === 412,
-  );
+  const patchesBefore = patches.length;
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await refused;
   await expect(page.getByText(/was changed since you opened it/)).toBeVisible();
+  expect(patches).toHaveLength(patchesBefore);
+  await page.getByRole("button", { name: "Reload" }).click();
+  await expect(page.getByLabel("Power level")).toHaveValue("99");
+  await expect(field).toHaveValue(`${name} edited`);
 
   // Archive it from the record page; it then shows up in the trash.
   await page.getByRole("button", { name: "Delete" }).click();
