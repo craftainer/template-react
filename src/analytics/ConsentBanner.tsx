@@ -109,8 +109,8 @@ export function ConsentBanner() {
         bottom: 0,
         zIndex: "appBar",
         bgcolor: "background.paper",
+        // The design system's ink rule, on the top edge only.
         borderTop: 2,
-        borderStyle: "solid",
         borderColor: "text.primary",
         px: 3,
         py: 2,
@@ -126,7 +126,10 @@ export function ConsentBanner() {
             id="consent-title"
             ref={promptRef}
             tabIndex={-1}
-            variant="subtitle1"
+            // A programmatic focus target (never in the tab order): the
+            // region's own rule already marks it, so no ring on the heading.
+            sx={{ outline: 0 }}
+            variant="h6"
             component="h2"
           >
             Count my visits?

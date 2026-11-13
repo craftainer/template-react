@@ -23,7 +23,9 @@ function App() {
   const [logoutFailed, setLogoutFailed] = useState(false);
 
   return (
-    <>
+    // A full-height column, so the consent prompt sits at the page bottom even
+    // when the content is short.
+    <Box sx={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       <AppBar position="static" elevation={0}>
         <Toolbar>
           <Typography variant="h6" component="h1" noWrap sx={{ flexGrow: 1 }}>
@@ -68,7 +70,7 @@ function App() {
         </Toolbar>
       </AppBar>
 
-      <Container component="main" maxWidth="lg" sx={{ py: 4 }}>
+      <Container component="main" maxWidth="lg" sx={{ py: 4, flexGrow: 1 }}>
         {logoutFailed ? (
           <Alert severity="error" sx={{ mb: 2 }}>
             Could not sign you out, so you are still signed in. Try again.
@@ -87,7 +89,7 @@ function App() {
         )}
       </Container>
       <ConsentBanner />
-    </>
+    </Box>
   );
 }
 
