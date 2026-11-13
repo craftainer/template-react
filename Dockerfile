@@ -15,7 +15,7 @@ ARG SSL_CERT_DIR=/etc/ssl/certs
 
 ########################################
 # builder -- installs deps with pnpm (the pinned version comes from
-# package.json's own `packageManager` field, which Corepack reads) and
+# package.json's own `packageManager` field, installed with npm) and
 # builds the static SPA bundle.
 ########################################
 FROM node:${NODE_VERSION}-${DEBIAN_VERSION}-slim AS builder
@@ -24,10 +24,14 @@ ARG SSL_CERT_DIR
 ENV SSL_CERT_FILE=${SSL_CERT_FILE} \
     SSL_CERT_DIR=${SSL_CERT_DIR}
 
-RUN corepack enable
 WORKDIR /workspace
+# Node 25+ no longer bundles Corepack, so pnpm is installed with npm at the
+# exact version package.json's `packageManager` pins (single source).
+COPY package.json ./
+RUN npm install --global --no-audit --no-fund --silent \
+    "pnpm@$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '').replace(/\\+.*/, '')")"
 # bff/package.json: bff/ is a workspace member, so the install needs it.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY bff/package.json bff/package.json
 RUN pnpm install --frozen-lockfile
 COPY . .
@@ -45,9 +49,13 @@ ARG SSL_CERT_DIR
 ENV SSL_CERT_FILE=${SSL_CERT_FILE} \
     SSL_CERT_DIR=${SSL_CERT_DIR}
 
-RUN corepack enable
 WORKDIR /workspace
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Node 25+ no longer bundles Corepack, so pnpm is installed with npm at the
+# exact version package.json's `packageManager` pins (single source).
+COPY package.json ./
+RUN npm install --global --no-audit --no-fund --silent \
+    "pnpm@$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '').replace(/\\+.*/, '')")"
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY bff/package.json bff/package.json
 COPY bff/src bff/src
 RUN pnpm --filter ./bff deploy --prod /out
