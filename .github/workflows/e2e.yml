@@ -1,0 +1,93 @@
+# The real-stack end-to-end lane (tests/e2e/): Keycloak, Postgres, Valkey, MQTT
+# and the API from template-fastapi's own compose stack, the BFFs from this
+# repo, driven by Playwright in the pinned image. Instance-owned (see the
+# template-sync manifest): it checks out template-fastapi, which only this app
+# knows about.
+#
+# Runs on the host runner, not in the devcontainer: lane.sh and run.sh need only
+# Docker (preinstalled), and `vite build` needs Node and pnpm, which setup-node
+# and corepack provide. devcontainers/ci would nest Docker-in-Docker for no gain.
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fastapi_ref:
+        description: template-fastapi branch, tag or commit to run the lane against
+        type: string
+        default: main
+
+permissions: {}
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    # amd64: the lane's images (Keycloak, the template-fastapi devcontainer
+    # image) are built and tested there; the visual suite is the arm64 one.
+    runs-on: ${{ vars.CI_RUNNER_AMD64 || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      E2E_FASTAPI_DIR: ${{ github.workspace }}/.e2e-template-fastapi
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Public repo, read-only, no credentials persisted. Pinned
+      # to main by default; the dispatch input pins another ref.
+      - name: Check out template-fastapi
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: craftainer/template-fastapi
+          ref: ${{ inputs.fastapi_ref || 'main' }}
+          path: .e2e-template-fastapi
+          persist-credentials: false
+
+      # Keep equal to NODE_VERSION in .devcontainer/Dockerfile.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+
+      - name: Install dependencies and build the SPA
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm exec vite build
+
+      - name: Bring the lane up
+        run: tests/e2e/lane.sh up
+
+      # One run, no --repeat-each: the crud server rate-limits writes to 20/min.
+      - name: Run the e2e suite
+        run: tests/e2e/run.sh
+
+      - name: Show the lane's logs
+        if: failure()
+        run: |
+          docker compose -p bffe2e ps -a || true
+          docker ps -aq --filter label=com.docker.compose.project=bffe2e |
+            xargs -r -n1 docker logs --tail 80 || true
+
+      - name: Upload Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+      - name: Tear the lane down
+        if: always()
+        run: tests/e2e/lane.sh down
