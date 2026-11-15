@@ -632,7 +632,8 @@ class DevelopScriptTest(unittest.TestCase):
         self.assertNotIn("download_installer", self.text)
         for tool in ("uv", "prek"):
             self.assertRegex(
-                self.text, rf'fetch_checked "https://github\.com/[^"]*/\${{{tool}_asset}}\.tar\.gz"'
+                self.text,
+                rf'install_checked_tarball "https://github\.com/[^"]*/\${{{tool}_asset}}\.tar\.gz"',
             )
         self.assertIn("install_claude ", self.text)
         self.assertRegex(self.text, r"(?m)^claude_signing_fpr=[0-9A-F]{40}$")
@@ -740,6 +741,96 @@ class DevelopScriptTest(unittest.TestCase):
                 result = self.run_fetch_checked(line)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("verified", result.stdout)
+
+    def test_install_claude_stops_gpg_agent_and_removes_the_keyring(self) -> None:
+        """The temporary GNUPGHOME is killed (gpg-agent, dirmngr) and removed once verification is done."""
+        found = re.search(r"^install_claude\(\) \{\n.*?^\}\n", self.text, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(found)
+        body = found.group(0)  # type: ignore[union-attr]
+        kill = body.index('gpgconf --homedir "$gnupg_home" --kill all')
+        self.assertLess(body.index("--verify"), kill)
+        self.assertLess(kill, body.index('rm -rf "$gnupg_home"'))
+
+    def run_install_checked_tarball(
+        self, tarball: bytes, checksum: str | None = None, member: str = "tool-1/bin"
+    ) -> tuple[subprocess.CompletedProcess[str], tuple[bytes, int] | None]:
+        """Run ``install_checked_tarball`` for ``member`` against a fake ``curl`` serving ``tarball``.
+
+        ``checksum`` overrides the published digest; returns the result and the installed
+        file's ``(contents, mode)``, or ``None`` when nothing was installed.
+        """
+        digest = checksum or hashlib.sha256(tarball).hexdigest()
+        with tempfile.TemporaryDirectory() as tmp:
+            served = Path(tmp) / "served"
+            dest = Path(tmp) / "dest"
+            served.mkdir()
+            dest.mkdir()
+            (served / "tool.tar.gz").write_bytes(tarball)
+            (served / "tool.tar.gz.sha256").write_text(f"{digest}  tool.tar.gz\n")
+            curl_body = (
+                'while [ $# -gt 0 ]; do case "$1" in -o) out=$2;; http*) url=$1;; esac; shift; done\n'
+                f'cp "{served}/${{url##*/}}" "$out"\n'
+            )
+            result, _ = self.run_bash(
+                ("tmp_path", "fetch", "fetch_checked", "install_checked_tarball"),
+                f'install_checked_tarball "https://example.invalid/tool.tar.gz" "{dest}" "{member}"\n'
+                "echo installed\n",
+                curl_body,
+            )
+            installed = dest / Path(member).name
+            kept = (
+                (installed.read_bytes(), installed.stat().st_mode) if installed.exists() else None
+            )
+        return result, kept
+
+    @staticmethod
+    def make_tarball(files: dict[str, bytes]) -> bytes:
+        """Return a gzipped tarball of ``files`` (name to contents)."""
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            for name, content in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(content)
+                archive.addfile(info, io.BytesIO(content))
+        return buffer.getvalue()
+
+    def test_install_checked_tarball_extracts_and_installs_executable(self) -> None:
+        """A tarball with a matching checksum installs the named member, mode 0755."""
+        result, kept = self.run_install_checked_tarball(
+            self.make_tarball({"tool-1/bin": b"binary"})
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("installed", result.stdout)
+        self.assertIsNotNone(kept)
+        contents, mode = kept  # type: ignore[misc]
+        self.assertEqual(contents, b"binary")
+        self.assertEqual(mode & 0o777, 0o755)
+
+    def test_install_checked_tarball_rejects_a_checksum_mismatch(self) -> None:
+        """A wrong published digest aborts before anything is installed."""
+        result, kept = self.run_install_checked_tarball(
+            self.make_tarball({"tool-1/bin": b"binary"}), checksum="0" * 64
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("installed", result.stdout)
+        self.assertIsNone(kept)
+
+    def test_install_checked_tarball_rejects_an_empty_file(self) -> None:
+        """An empty download fails even when its checksum is the (matching) digest of nothing."""
+        result, kept = self.run_install_checked_tarball(b"")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("installed", result.stdout)
+        self.assertIn("empty", result.stderr)
+        self.assertIsNone(kept)
+
+    def test_install_checked_tarball_rejects_a_missing_member(self) -> None:
+        """A tarball lacking the named member aborts rather than installing nothing."""
+        result, kept = self.run_install_checked_tarball(
+            self.make_tarball({"tool-1/other": b"binary"})
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("installed", result.stdout)
+        self.assertIsNone(kept)
 
     @staticmethod
     def gpg_key(home: Path, name: str) -> tuple[str, bytes]:

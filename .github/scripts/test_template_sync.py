@@ -862,6 +862,168 @@ def directly_invoked_scripts(workflow_text: str) -> set[str]:
     return invoked
 
 
+class BytecodeExcludedTest(unittest.TestCase):
+    """Python bytecode never syncs: running the script in a checkout creates it."""
+
+    def test_tier_paths_skips_pycache_and_pyc(self) -> None:
+        """A replace directory and a glob both skip ``__pycache__/`` and ``*.pyc``."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel in (
+                ".github/scripts/a.py",
+                ".github/scripts/__pycache__/a.cpython-314.pyc",
+                ".github/scripts/sub/__pycache__/b.txt",
+                ".github/scripts/stray.pyc",
+                "cfg/x.json",
+                "cfg/__pycache__/x.json",
+            ):
+                write(root / rel, b"x\n", 0o644)
+            tiers: dict[str, list[str]] = {
+                "replace": [".github/scripts/", "cfg/*"],
+                "ignore": [],
+                "merge": [],
+            }
+            self.assertEqual(
+                template_sync.tier_paths(root, tiers, "replace"),
+                {".github/scripts/a.py", "cfg/x.json"},
+            )
+
+    def test_apply_does_not_copy_bytecode_into_the_instance(self) -> None:
+        """End to end: a stray ``__pycache__`` in the new template stays out."""
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new, inst = (Path(tmp) / n for n in ("old", "new", "inst"))
+            for d in (old, new, inst):
+                d.mkdir()
+            write(new / "s/a.py", b"print(1)\n", 0o644)
+            write(new / "s/__pycache__/a.pyc", b"\0\1", 0o644)
+            paths = template_sync.tier_paths(
+                new, {"replace": ["s/"], "ignore": [], "merge": []}, "replace"
+            )
+            template_sync.apply_replace(old, new, inst, paths)
+            self.assertTrue((inst / "s/a.py").exists())
+            self.assertFalse((inst / "s/__pycache__").exists())
+
+
+class ConflictedSyncIsDraftTest(unittest.TestCase):
+    """A sync whose merge left conflicts must open as a draft naming the files."""
+
+    CONFLICT = {
+        "replace": {"updated": [], "removed": []},
+        "merge": {"merged": [], "conflicts": [".github/renovate.json"], "binary": []},
+    }
+    CLEAN = {
+        "replace": {"updated": [], "removed": []},
+        "merge": {"merged": ["README.md"], "conflicts": [], "binary": []},
+    }
+
+    def test_body_flags_manual_resolution_and_lists_files(self) -> None:
+        """The body leads with a warning and lists each conflicted file."""
+        body = template_sync.pr_body(self.CONFLICT, "v1.0.0", "v1.1.0", "o/t")
+        self.assertIn("Needs manual resolution", body)
+        self.assertIn("draft", body)
+        self.assertIn("`.github/renovate.json`", body)
+
+    def test_clean_body_has_no_warning(self) -> None:
+        """A clean sync's body is unchanged."""
+        body = template_sync.pr_body(self.CLEAN, "v1.0.0", "v1.1.0", "o/t")
+        self.assertNotIn("Needs manual resolution", body)
+
+    def test_workflow_opens_conflicted_sync_as_draft(self) -> None:
+        """The workflow passes ``--draft`` on ``conflicts=1`` and disables bytecode."""
+        text = (REPO_ROOT / ".github/workflows/template-sync.yml").read_text()
+        self.assertIn("CONFLICTS: ${{ steps.apply.outputs.conflicts }}", text)
+        self.assertIn('if [ "$CONFLICTS" = "1" ]; then\n            draft=(--draft)', text)
+        self.assertIn('gh pr create "${draft[@]}"', text)
+        self.assertIn('PYTHONDONTWRITEBYTECODE: "1"', text)
+
+
+class NewIgnoreFilesTest(unittest.TestCase):
+    """A new exact-path ignore-tier file is created once and then instance-owned."""
+
+    TIERS: dict[str, list[str]] = {
+        "replace": ["tool.sh"],
+        "ignore": ["compose.instance.yml", "docs/plans/[0-9]*.md", "src/"],
+        "merge": [],
+    }
+
+    def run_apply(self, old: Path, new: Path, inst: Path) -> dict[str, dict[str, list[str]]]:
+        """Run ``cmd_apply`` over the trees with ``TIERS``; return its summary."""
+        manifest = old.parent / "manifest.yml"
+        manifest.write_text(
+            "".join(
+                f"{tier}:\n" + "".join(f"  - {p}\n" for p in pats)
+                for tier, pats in self.TIERS.items()
+            )
+        )
+        args = argparse.Namespace(manifest=manifest, old_ref=old, new_ref=new, instance_root=inst)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(template_sync.cmd_apply(args), 0)
+        summary: dict[str, dict[str, list[str]]] = json.loads(out.getvalue())
+        return summary
+
+    def trees(self, tmp: str) -> tuple[Path, Path, Path]:
+        """Make empty old/new/instance trees."""
+        old, new, inst = (Path(tmp) / n for n in ("old", "new", "inst"))
+        for d in (old, new, inst):
+            d.mkdir()
+        return old, new, inst
+
+    def test_created_when_missing_and_listed_in_pr_body(self) -> None:
+        """A file new in this release is copied, reported and named in the PR body."""
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new, inst = self.trees(tmp)
+            write(new / "compose.instance.yml", b"services: {}\n", 0o644)
+            summary = self.run_apply(old, new, inst)
+            self.assertEqual((inst / "compose.instance.yml").read_bytes(), b"services: {}\n")
+            self.assertEqual(summary["ignore"]["created"], ["compose.instance.yml"])
+            body = template_sync.pr_body(summary, "v1.0.0", "v1.1.0", "o/t")
+            self.assertIn("### New instance-owned files", body)
+            self.assertIn("- `compose.instance.yml`", body)
+
+    def test_not_overwritten_when_present(self) -> None:
+        """An existing instance file keeps its content and is not reported."""
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new, inst = self.trees(tmp)
+            write(new / "compose.instance.yml", b"new\n", 0o644)
+            write(inst / "compose.instance.yml", b"mine\n", 0o644)
+            summary = self.run_apply(old, new, inst)
+            self.assertEqual((inst / "compose.instance.yml").read_bytes(), b"mine\n")
+            self.assertEqual(summary["ignore"]["created"], [])
+            body = template_sync.pr_body(summary, "v1.0.0", "v1.1.0", "o/t")
+            self.assertNotIn("New instance-owned files", body)
+
+    def test_not_resurrected_after_deliberate_deletion(self) -> None:
+        """A file the previous release already had is not recreated in an instance lacking it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new, inst = self.trees(tmp)
+            write(old / "compose.instance.yml", b"old\n", 0o644)
+            write(new / "compose.instance.yml", b"new\n", 0o644)
+            summary = self.run_apply(old, new, inst)
+            self.assertFalse((inst / "compose.instance.yml").exists())
+            self.assertEqual(summary["ignore"]["created"], [])
+
+    def test_globs_and_directories_are_not_starter_files(self) -> None:
+        """Template plans (a glob) and ``src/`` (a directory) are never handed to instances."""
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new, inst = self.trees(tmp)
+            write(new / "docs/plans/2026-01-x.md", b"plan\n", 0o644)
+            write(new / "src/app.py", b"x\n", 0o644)
+            summary = self.run_apply(old, new, inst)
+            self.assertEqual(summary["ignore"]["created"], [])
+            self.assertFalse((inst / "docs").exists())
+            self.assertFalse((inst / "src").exists())
+
+    def test_symlink_in_instance_is_left_alone(self) -> None:
+        """A (dangling) symlink at the path counts as present."""
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new, inst = self.trees(tmp)
+            write(new / "compose.instance.yml", b"new\n", 0o644)
+            (inst / "compose.instance.yml").symlink_to(inst / "elsewhere")
+            self.run_apply(old, new, inst)
+            self.assertFalse((inst / "elsewhere").exists())
+
+
 class DirectlyInvokedScriptsAreExecutableTest(unittest.TestCase):
     """A workflow step that names a script as the command needs mode 755 (exit 126 otherwise)."""
 

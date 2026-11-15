@@ -13,7 +13,7 @@ set -euo pipefail
 denied=0
 while IFS= read -r -d '' path; do
   case "$path" in
-    .github/* | .devcontainer/* | .claude/* | .vscode/* | .mcp.json | \
+    .github/* | .devcontainer/* | .devcontainer.json | .claude/* | .vscode/* | .mcp.json | \
       .pre-commit-config.yaml | .pre-commit-config.yml | .gitattributes | .gitmodules | \
       Makefile | */Makefile | GNUmakefile | */GNUmakefile | makefile | */makefile | *.mk | \
       scripts/release* | scripts/develop.sh | scripts/post-create.sh | \

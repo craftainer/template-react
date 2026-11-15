@@ -10,28 +10,74 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from git_test_env import git_env
+
 SCRIPTS = Path(__file__).resolve().parent
-GIT_ENV = {
-    "GIT_AUTHOR_NAME": "t",
-    "GIT_AUTHOR_EMAIL": "t@example.com",
-    "GIT_COMMITTER_NAME": "t",
-    "GIT_COMMITTER_EMAIL": "t@example.com",
-}
 
 
 def run(
     argv: list[str], cwd: Path | None = None, env: dict[str, str] | None = None, stdin: bytes = b""
 ) -> subprocess.CompletedProcess[bytes]:
-    """Run a fixed argv with a merged environment."""
+    """Run a fixed argv with a scrubbed (no inherited ``GIT_*``) merged environment."""
     return subprocess.run(  # noqa: S603 -- fixed argv, trusted scripts
         argv,
         cwd=cwd,
-        env={**os.environ, **GIT_ENV, **(env or {})},
+        env={**git_env(), **(env or {})},
         input=stdin,
         capture_output=True,
         check=False,
         timeout=60,
     )
+
+
+class GitEnvIsolationTest(unittest.TestCase):
+    """The helpers must not let an outer repo's ``GIT_*`` reach a scratch repo."""
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_decoy_repo_is_untouched(self) -> None:
+        """With GIT_DIR/GIT_INDEX_FILE pointing at a decoy, git acts on the scratch repo only."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            decoy, scratch = root / "decoy", root / "scratch"
+            decoy.mkdir()
+            scratch.mkdir()
+            plain = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            subprocess.run(  # noqa: S603 -- fixed argv
+                ["git", "init", "-q", str(decoy)],  # noqa: S607
+                check=True,
+                env=plain,
+            )
+            config_before = (decoy / ".git/config").read_bytes()
+            leaked = {
+                **os.environ,
+                "GIT_DIR": str(decoy / ".git"),
+                "GIT_INDEX_FILE": str(decoy / ".git/index"),
+                "GIT_WORK_TREE": str(decoy),
+            }
+            for argv in (["init", "-q", "-b", "main"], ["config", "core.bare", "true"]):
+                proc = subprocess.run(  # noqa: S603 -- fixed argv
+                    ["git", *argv],  # noqa: S607
+                    cwd=scratch,
+                    env=git_env(leaked),
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+            (scratch / "a.txt").write_text("x\n")
+            run(["git", "add", "a.txt"], cwd=scratch)  # run() scrubs the real environment too
+            self.assertTrue((scratch / ".git").is_dir())
+            self.assertEqual((decoy / ".git/config").read_bytes(), config_before)
+            self.assertFalse((decoy / ".git/index").exists())
+            self.assertFalse((decoy / "a.txt").exists())
+
+    def test_git_env_drops_everything_but_the_identity(self) -> None:
+        """Only the test identity and the config isolation survive."""
+        env = git_env({"GIT_DIR": "x", "GIT_CONFIG": "y", "PATH": "/bin"})
+        self.assertEqual(env["PATH"], "/bin")
+        self.assertNotIn("GIT_DIR", env)
+        self.assertNotIn("GIT_CONFIG", env)
+        self.assertEqual(env["GIT_AUTHOR_NAME"], "t")
+        self.assertEqual(env["GIT_CONFIG_NOSYSTEM"], "1")
 
 
 class CheckPathsTest(unittest.TestCase):
@@ -49,6 +95,7 @@ class CheckPathsTest(unittest.TestCase):
             ".github/scripts/run_claude.sh",
             ".github/renovate.json",
             ".devcontainer/Dockerfile",
+            ".devcontainer.json",
             ".devcontainer/stack/x/compose.yml",
             ".claude/settings.json",
             ".mcp.json",
@@ -82,6 +129,8 @@ class CheckPathsTest(unittest.TestCase):
             "docs/Makefile.md",
             "scripts/other.sh",
             ".githubx/y",
+            "sub/.devcontainer.json",
+            ".devcontainerx/y",
             "github/workflows/x.yml",
             "README.md",
         ]
@@ -95,6 +144,53 @@ class CheckPathsTest(unittest.TestCase):
         """Paths are NUL-separated, so a newline inside one cannot hide a denied name."""
         self.assertEqual(self.verdict("a\n.github/x"), 0)
         self.assertEqual(self.verdict(".github/x\nb"), 1)
+
+
+class IsAncestorTest(unittest.TestCase):
+    """``is_ancestor`` retries a failing compare call but not a definite answer."""
+
+    def answer(self, outcomes: str) -> tuple[int, int]:
+        """Return (exit status, number of gh calls) when gh yields these outcomes in turn.
+
+        Each character is one call: ``a`` prints ahead, ``d`` prints diverged, ``x`` fails.
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        gh = root / "bin" / "gh"
+        gh.parent.mkdir()
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            f'n=$(cat "{root}/n" 2>/dev/null || echo 0); echo $((n+1)) > "{root}/n"\n'
+            f'c=$(printf %s "{outcomes}" | cut -c$((n+1)))\n'
+            'case "$c" in a) echo ahead;; d) echo diverged;; *) exit 1;; esac\n'
+        )
+        gh.chmod(0o755)
+        proc = run(
+            ["bash", "-c", f'. "{SCRIPTS}/moderate_lib.sh"; is_ancestor a b'],
+            env={
+                "PATH": f"{gh.parent}:{os.environ['PATH']}",
+                "GITHUB_REPOSITORY": "o/r",
+                "MODERATE_RETRY_DELAY": "0",
+            },
+        )
+        return proc.returncode, int((root / "n").read_text())
+
+    def test_success_is_not_retried(self) -> None:
+        """An ahead answer needs one call."""
+        self.assertEqual(self.answer("a"), (0, 1))
+
+    def test_transient_errors_are_retried(self) -> None:
+        """Two failed calls then success still succeeds."""
+        self.assertEqual(self.answer("xxa"), (0, 3))
+
+    def test_persistent_errors_fail_closed_after_three_calls(self) -> None:
+        """A call that never works refuses, after exactly three attempts."""
+        self.assertEqual(self.answer("xxxa"), (1, 3))
+
+    def test_a_definite_no_is_not_retried(self) -> None:
+        """A diverged answer is final."""
+        self.assertEqual(self.answer("da"), (1, 1))
 
 
 @unittest.skipUnless(shutil.which("jq") and shutil.which("git"), "jq and git are required")
@@ -207,6 +303,20 @@ class PackageResultTest(unittest.TestCase):
         meta = self.package("triage")
         self.assertEqual((meta["action"], meta["comment"]), ("repro-ready", "it fails"))
         self.assertTrue((self.out / "patch.diff").exists())
+
+    def test_triage_patch_over_the_cap_keeps_its_reason(self) -> None:
+        """An oversized patch is dropped, but the triage result says why it failed."""
+        (self.ws / "big.txt").write_text("x" * 2_200_000 + "\n")
+        self.git("add", "big.txt")
+        self.git("commit", "-q", "-m", "feat: big")
+        (self.ws / ".moderation-out" / "triage.json").write_text(
+            json.dumps({"action": "repro-ready", "comment": "it fails"})
+        )
+        self.package("triage")
+        meta = json.loads((self.out / "meta.json").read_text())
+        self.assertEqual(meta["action"], "failed")
+        self.assertIn("larger than", meta["comment"])
+        self.assertFalse((self.out / "patch.diff").exists())
 
     def test_triage_result_bad_shapes(self) -> None:
         """Invalid JSON, wrong types and a symlinked file all become `failed`."""

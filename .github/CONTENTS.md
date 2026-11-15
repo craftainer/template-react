@@ -18,8 +18,10 @@
   language's own package manifest (e.g. `pyproject.toml`, `Cargo.toml`,
   `package.json`). All patch/minor updates are grouped into a single
   weekly PR that automerges once required checks pass; all major updates
-  are grouped into a separate PR for manual review. A Python minor
-  upgrade (e.g. 3.14 to 3.15) also gets its own PR for manual review:
+  are grouped into a separate PR for manual review. Python 3.15 is held
+  (`allowedVersions: "<3.15"`) until uv, pip-audit and pydantic-core
+  support it; see `../docs/TEMPLATE.md`. A Python minor
+  upgrade (e.g. 3.14 to 3.16) also gets its own PR for manual review:
   it passes this repo's checks, but for an instance running Python as
   its app runtime it's a runtime upgrade (its runtime `Dockerfile` must
   match, and its tools must support the new version). Devcontainer

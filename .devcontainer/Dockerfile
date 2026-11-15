@@ -5,13 +5,13 @@
 # "Instance extension points".
 
 # renovate: datasource=github-releases depName=j178/prek
-ARG PREK_VERSION=0.5.9
+ARG PREK_VERSION=0.5.10
 
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.316
+ARG CLAUDE_CODE_VERSION=2.1.319
 
 # renovate: datasource=github-releases depName=edouard-claude/snip
-ARG SNIP_VERSION=0.25.2
+ARG SNIP_VERSION=0.26.0
 
 # renovate: datasource=github-releases depName=cli/cli
 ARG GH_VERSION=2.103.3
@@ -22,7 +22,7 @@ ARG GH_VERSION=2.103.3
 # package. Left on PATH afterward; harmless, and an instance that adds
 # Python as its own application runtime can reuse it directly.
 # renovate: datasource=github-releases depName=astral-sh/uv
-ARG UV_VERSION=0.13.6
+ARG UV_VERSION=0.13.7
 
 # python3 is infrastructure tooling, not an application runtime this
 # template assumes: prek needs an interpreter to build the venv for any

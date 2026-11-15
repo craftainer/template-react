@@ -28,9 +28,39 @@ jobs:
   gate:
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    environment: moderation
+    permissions:
+      actions: read
     outputs:
       has-key: ${{ steps.check.outputs.has-key }}
     steps:
+      - name: Check the moderation environment is restricted to the default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT_NAME: moderation
+        run: |
+          # Fail-fast only: a writer can delete this step on their own branch.
+          # The enforcement is the environment's deployment branch policy.
+          # See docs/TEMPLATE.md, "Moderation and template-sync environments".
+          err=$(mktemp)
+          if ! env_json=$(gh api "repos/$GITHUB_REPOSITORY/environments/$ENVIRONMENT_NAME" 2> "$err"); then
+            if grep -q 'HTTP 404' "$err"; then
+              echo "::error::Environment '$ENVIRONMENT_NAME' does not exist or is not readable. Create it with the setup in docs/TEMPLATE.md before running this workflow."
+              exit 1
+            fi
+            echo "::warning::Cannot read environment '$ENVIRONMENT_NAME' with this token ($(head -c 200 "$err")); its branch policy is unverified."
+            exit 0
+          fi
+          default_branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          flags=$(jq -r '.deployment_branch_policy | if . == null then "none" else "\(.custom_branch_policies)/\(.protected_branches)" end' <<< "$env_json")
+          policies=
+          if [ "$flags" = "true/false" ]; then
+            policies=$(gh api "repos/$GITHUB_REPOSITORY/environments/$ENVIRONMENT_NAME/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type):\(.name)"] | sort | join(",")')
+          fi
+          if [ "$policies" != "branch:$default_branch" ]; then
+            echo "::error::Environment '$ENVIRONMENT_NAME' must allow deployments from the default branch '$default_branch' only (custom branch policy, one rule 'branch:$default_branch'); found policy '$flags', rules '$policies'. Fix it with the setup in docs/TEMPLATE.md."
+            exit 1
+          fi
       - id: check
         run: echo "has-key=${{ secrets.ANTHROPIC_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
 
@@ -43,6 +73,7 @@ jobs:
        contains(github.event.issue.labels.*.name, 'claude:ok')) }}
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    environment: moderation
     timeout-minutes: 10
     # Read-only: this job runs Claude against the issue's (untrusted) text, so
     # whatever a prompt injection reaches must not be able to push, comment or
