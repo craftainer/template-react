@@ -6,6 +6,14 @@
   [`devcontainers/ci`](https://github.com/devcontainers/ci)), under a
   per-run `COMPOSE_PROJECT_NAME` that a final step tears down. Runs as a
   two-leg `amd64`/`arm64` matrix (see "Architecture matrix" below).
+  A step before the hooks runs `../scripts/semver_release_type.py` when an
+  instance or downstream template ships it (template-rust-crate does; base
+  does not, so the step is skipped here) and the hooks step forwards its
+  `SEMVER_RELEASE_TYPE` into the container (the step appends the script's
+  output to `$GITHUB_ENV` only if it is empty or exactly
+  `SEMVER_RELEASE_TYPE=` with an optional `major`, `minor` or `patch`
+  value, failing otherwise), so a `!`-marked PR title (or, on
+  `main`, head commit subject) runs `cargo semver-checks` as `major`.
 - `release.yml` — manually triggered, and only from the default branch:
   the `version` job's first step fails on any other ref, and `build`,
   `release` and `publish-packages` repeat the check in their own `if:`.
@@ -54,8 +62,8 @@
   schedule or `workflow_dispatch`, diffs the instance against the
   template's latest tagged release per the manifest's tiers and opens a
   PR — never a direct push, never auto-merged.
-  `template_sync.py apply` exits 0 (clean), 1 (merge conflicts, still
-  opens the PR) or 2 (error, e.g. an unreadable manifest or `git
+  `template_sync.py apply` exits 0 (clean), 1 (merge conflicts: the PR is still
+  opened, as a draft whose body says it needs manual resolution) or 2 (error, e.g. an unreadable manifest or `git
   merge-file` failing): every failure other than conflicts exits 2. A
   binary merge-tier file the instance changed cannot be merged, so it is
   reported as a conflict and the instance's copy is left as it is. A crash before
@@ -65,7 +73,22 @@
   fails the job before the sync state advances. The job then exits with
   `apply`'s own status when that is 2 or higher (so the log and the step's
   exit code tell an error from conflicts) and the summary is printed as valid
-  only after that check.
+  only after that check. The `ignore` tier is instance-owned: sync never overwrites or deletes an
+  `ignore` file. The one exception is a new starting copy: an exact-path
+  `ignore` entry whose file the new tag introduces (the previous synced tag
+  lacks it) is created when the instance lacks it, and the PR body lists it
+  under "New instance-owned files". A glob or directory entry is never
+  created, nor is a file the previous tag already had, so a file the instance
+  deleted stays deleted. A path's tier comes from the upstream tag's manifest
+  only, so when a parent's `ignore` file (template-docker's `README.md`,
+  `Dockerfile`, `image.mk`) is also listed by the instance's own manifest
+  (template-fastapi or -react, which ship their own versions), the parent's
+  `ignore` wins for that sync: the instance's copy is left as it is, and its
+  own manifest classifies the path only for the instance's own instances.
+  The sync never copies Python bytecode
+  (`__pycache__/`, `*.pyc`), and the apply step sets
+  `PYTHONDONTWRITEBYTECODE` so running the script cannot create any in the
+  template checkout.
 
 Every workflow's `runs-on` defaults to `ubuntu-24.04` but can be
 overridden with the `CI_RUNNER` repository/organization variable —
@@ -257,8 +280,13 @@ Activating this in a given repo/fork takes two one-time steps, neither
 of which is itself a workflow: provisioning a dedicated Anthropic
 Console workspace (its own `ANTHROPIC_API_KEY`, a monthly spend limit,
 and a usage alert at 80% of it) and storing that key as the
-`ANTHROPIC_API_KEY` repository secret, then running `moderate-setup.yml`
-once to create the labels below.
+`ANTHROPIC_API_KEY` secret of the `moderation` environment (the `gate`
+and Claude jobs declare `environment: moderation`; create it with
+`../scripts/setup_environments.sh`, see `../../docs/TEMPLATE.md`,
+"Moderation and template-sync environments"), then running
+`moderate-setup.yml` once to create the labels below. The `gate` job's
+first step fails the run if that environment is missing or isn't
+restricted to the default branch.
 
 Two independent label sequences track state, applied by the `apply` jobs
 (`gh issue edit`) from a fixed action-to-label table, or by a deterministic
@@ -285,7 +313,7 @@ output — `secrets` isn't readable from `jobs.<job_id>.if` directly
 `jobs.<job_id>.env`. The real job then carries
 `if: needs.gate.outputs.has-key == 'true' && <trust condition>`,
 checked before checkout — so a fork or clone that hasn't set the
-`ANTHROPIC_API_KEY` repository secret sees every one of these jobs show
+`ANTHROPIC_API_KEY` secret sees every one of these jobs show
 **Skipped**, not **Failed**, and gets no failure-triggered email from
 GitHub's default Actions notifications. `moderate-cleanup.yml` has no
 such gate (see its own header comment) and always runs.
@@ -416,7 +444,8 @@ variables/secrets, all optional:
   no-ops except during the first cron-scheduled week of the month.
 - `TEMPLATE_SYNC_CHANNEL` (variable, `stable` | `alpha` | `beta` | `rc`,
   default `stable`) — which tag channel to sync to.
-- `TEMPLATE_SYNC_TOKEN` (secret) — a PAT used to read the template
+- `TEMPLATE_SYNC_TOKEN` (secret, held in the `template-sync` environment the
+  `sync` job declares; first step checks it) — a PAT used to read the template
   repository and to push the sync branch / open the sync PR. It needs
   the `workflow` scope (classic PAT) or **Workflows: read/write**
   (fine-grained), because the default `GITHUB_TOKEN` can't push

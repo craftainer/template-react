@@ -24,6 +24,7 @@ on:
         required: false
 
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
@@ -34,7 +35,36 @@ jobs:
   sync:
     # renovate: datasource=github-runners depName=ubuntu
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    environment: template-sync
     steps:
+      # Before the checkout below, the first use of TEMPLATE_SYNC_TOKEN.
+      - name: Check the template-sync environment is restricted to the default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT_NAME: template-sync
+        run: |
+          # Fail-fast only: a writer can delete this step on their own branch.
+          # The enforcement is the environment's deployment branch policy.
+          # See docs/TEMPLATE.md, "Moderation and template-sync environments".
+          err=$(mktemp)
+          if ! env_json=$(gh api "repos/$GITHUB_REPOSITORY/environments/$ENVIRONMENT_NAME" 2> "$err"); then
+            if grep -q 'HTTP 404' "$err"; then
+              echo "::error::Environment '$ENVIRONMENT_NAME' does not exist or is not readable. Create it with the setup in docs/TEMPLATE.md before running this workflow."
+              exit 1
+            fi
+            echo "::warning::Cannot read environment '$ENVIRONMENT_NAME' with this token ($(head -c 200 "$err")); its branch policy is unverified."
+            exit 0
+          fi
+          default_branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          flags=$(jq -r '.deployment_branch_policy | if . == null then "none" else "\(.custom_branch_policies)/\(.protected_branches)" end' <<< "$env_json")
+          policies=
+          if [ "$flags" = "true/false" ]; then
+            policies=$(gh api "repos/$GITHUB_REPOSITORY/environments/$ENVIRONMENT_NAME/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type):\(.name)"] | sort | join(",")')
+          fi
+          if [ "$policies" != "branch:$default_branch" ]; then
+            echo "::error::Environment '$ENVIRONMENT_NAME' must allow deployments from the default branch '$default_branch' only (custom branch policy, one rule 'branch:$default_branch'); found policy '$flags', rules '$policies'. Fix it with the setup in docs/TEMPLATE.md."
+            exit 1
+          fi
       # TEMPLATE_SYNC_TOKEN, not the default GITHUB_TOKEN: checkout stores
       # this token for the later `git push`, and GITHUB_TOKEN can never
       # create or update files under .github/workflows/ -- which most
@@ -46,7 +76,7 @@ jobs:
           token: ${{ secrets.TEMPLATE_SYNC_TOKEN || github.token }}
 
       # Belt-and-suspenders against a self-sync loop: this workflow ships
-      # inside the template repo itself (craftainer/template-fastapi),
+      # inside the template repo itself (craftainer/template-base),
       # which never has a state file, so "Read current sync state" below
       # already no-ops there. This step additionally refuses the one path
       # that could still set template_repo to this same repo -- a
@@ -150,6 +180,11 @@ jobs:
       - name: Apply replace and merge tiers
         id: apply
         if: inputs.initial_sync_tag == '' && steps.tags.outputs.skip != 'true' && steps.state.outputs.skip != 'true' && steps.cadence.outputs.skip != 'true'
+        env:
+          # The script runs inside the /tmp/template-new checkout, whose
+          # .github/scripts/ is a replace-tier directory: without this, its
+          # __pycache__ would be written there and synced into the instance.
+          PYTHONDONTWRITEBYTECODE: "1"
         run: |
           cd /tmp/template-new/.github/scripts
           set +e
@@ -211,6 +246,8 @@ jobs:
           TEMPLATE_REPO: ${{ steps.state.outputs.template_repo }}
           SYNCED_TAG: ${{ steps.state.outputs.synced_tag }}
           NEW_TAG: ${{ steps.tags.outputs.new_tag }}
+          # 1 when the merge left conflict markers (or a binary conflict).
+          CONFLICTS: ${{ steps.apply.outputs.conflicts }}
         run: |
           # Checkout doesn't persist credentials; git push uses gh's helper.
           gh auth setup-git
@@ -233,6 +270,14 @@ jobs:
             --template-repo "$TEMPLATE_REPO" \
             > /tmp/pr-body.md
 
-          gh pr create \
+          # Unresolved conflicts are committed as-is (markers and all), so
+          # open the PR as a draft: it cannot be merged by accident, and the
+          # body lists the files that need manual resolution.
+          draft=()
+          if [ "$CONFLICTS" = "1" ]; then
+            draft=(--draft)
+            echo "::warning::merge conflicts: opening the sync PR as a draft that needs manual resolution."
+          fi
+          gh pr create "${draft[@]}" \
             --title "chore(template-sync): sync to $NEW_TAG" \
             --body-file /tmp/pr-body.md

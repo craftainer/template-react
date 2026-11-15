@@ -16,9 +16,13 @@
   to 4 times; timeouts are left to curl's own `--retry`), so CI's shared-IP
   HTTP 429s don't fail the image build. Local builds need no token.
   No vendor install script is run: `uv` and `prek` are release tarballs
-  checked against the `.sha256` published beside them (`fetch_checked`),
+  checked against the `.sha256` published beside them (`install_checked_tarball`,
+  built on `fetch_checked`; an empty download is rejected),
   and Claude Code's binary is checked against its GPG-signed
-  `manifest.json` (key fingerprint pinned in `claude_signing_fpr`); see
+  `manifest.json` (key fingerprint pinned in `claude_signing_fpr`; the temporary keyring's
+  gpg-agent is killed and the keyring removed once verified). `gnupg` and
+  `jq` stay installed: the devcontainer's hooks, moderation scripts and
+  `install_claude` tests use them. See
   `../docs/TEMPLATE.md`'s "Supply chain and release hardening".
 - `post-create.sh` — the devcontainer's `postCreateCommand`: git
   `safe.directory`, `prek install`, then every `post-create.d/*.sh`.

@@ -78,6 +78,7 @@ class ApplyTriageTest(unittest.TestCase):
             "GITHUB_RUN_ID": "99",
             "DEFAULT_BRANCH": "main",
             "ISSUE_NUMBER": "7",
+            "MODERATE_RETRY_DELAY": "0",
             **(run_env or {}),
         }
         return subprocess.run(  # noqa: S603 -- fixed argv, trusted script
@@ -147,6 +148,20 @@ class ApplyTriageTest(unittest.TestCase):
                 self.assertTrue(
                     log[1].startswith("gh issue comment 7 --body Automated triage ended")
                 )
+
+    def test_failed_result_reason_is_posted(self) -> None:
+        """A `failed` result's own reason (the size cap) reaches the note; other unusable ones stay generic."""
+        reason = "The automated change is larger than the limit."
+        proc = self.run_script("failed", comment=reason)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            self.log()[1],
+            f"gh issue comment 7 --body Automated triage ended without a usable result. {reason} "
+            "A maintainer needs to look at this issue.",
+        )
+        (self.tmp / "log.txt").unlink()
+        self.run_script("bogus", comment=reason)
+        self.assertNotIn(reason, "\n".join(self.log()))
 
     def test_result_labels_are_ignored(self) -> None:
         """Only the fixed table decides the label; a label field in the result is never read."""

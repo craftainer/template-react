@@ -46,6 +46,11 @@
       "automerge": false
     },
     {
+      "description": "HOLD: no Python 3.15 yet (allowedVersions <3.15, any datasource or manager that names the dependency python: the python-version datasource, the python Docker image, .python-version, requires-python). Bumps to 3.15.2 failed across the template family: uv has no cpython-3.15.2 download, pip-audit crashes on the removed sre_constants, and pydantic-core has no cp315 wheel on arm64. Lift this rule once uv offers 3.15 builds and pip-audit and pydantic-core support 3.15.",
+      "matchDepNames": ["python"],
+      "allowedVersions": "<3.15"
+    },
+    {
       "description": "Pin container images to their digest. Scoped to the docker managers on purpose: a global pinDigests also hits the pre-commit manager, whose tag revs can't be converted to digests (the update fails). GitHub Actions are pinned by helpers:pinGitHubActionDigests instead.",
       "matchManagers": ["dockerfile", "docker-compose"],
       "pinDigests": true

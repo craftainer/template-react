@@ -153,6 +153,29 @@ fetch_checked() {
     (cd "$dir" && awk -v n="$name" '$2 == n { print; found = 1 } END { exit !found }' "${name}.sha256" | sha256sum -c -)
 }
 
+# install_checked_tarball <url> <dest dir> <member>...: fetch_checked's
+# download of a .tar.gz release asset, then installs each <member> (a path
+# inside the tarball, e.g. uv-x86_64-unknown-linux-gnu/uv) into <dest dir>
+# with mode 0755. Fails closed: a failed download, an empty file, a checksum
+# mismatch or a missing member aborts before anything is installed.
+install_checked_tarball() {
+    local url=$1 dest=$2 name dir member
+    shift 2
+    name="${url##*/}"
+    tmp_path -d
+    dir="$tmp_result"
+    fetch_checked "$url" "$dir"
+    if [ ! -s "${dir}/${name}" ]; then
+        echo "downloaded ${name} is empty: ${url}" >&2
+        return 1
+    fi
+    tar -xzf "${dir}/${name}" -C "$dir" "$@"
+    for member in "$@"; do
+        install -m755 -t "$dest" "${dir}/${member}"
+    done
+    rm -rf "$dir"
+}
+
 # Fingerprint of Anthropic's Claude Code release signing key (see the docs
 # above); a key whose primary fingerprint differs is rejected.
 claude_signing_fpr=31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
@@ -188,6 +211,10 @@ install_claude() {
         echo "Claude Code manifest is not signed by ${claude_signing_fpr}" >&2
         return 1
     }
+    # Stop the gpg-agent/dirmngr the import started and remove the keyring,
+    # so nothing lingers in the image layer.
+    gpgconf --homedir "$gnupg_home" --kill all
+    rm -rf "$gnupg_home"
     manifest_version="$(jq -er '.version' "${dir}/manifest.json")"
     if [ "$manifest_version" != "$version" ]; then
         echo "Claude Code manifest is for ${manifest_version}, expected ${version}" >&2
@@ -212,9 +239,14 @@ run_uv_python_install() {
 }
 
 # xz-utils: Node's own release tarballs are .tar.xz. gnupg and jq: verifying
-# the Claude Code manifest's signature and reading its checksum. bubblewrap
-# and socat: the dependencies of Claude Code's built-in sandbox on Linux,
-# which the issue-moderation workflows require (run_claude.sh fails closed
+# the Claude Code manifest's signature and reading its checksum. They are
+# kept afterwards, not purged: the devcontainer's own checks need them --
+# jq for .claude/hooks/self-check.sh and the .github/scripts moderation
+# scripts, gpg and jq for the install_claude tests in
+# .github/scripts/test_release_scripts.py (which skip without them, so a
+# purge would silently drop that coverage from `prek`). bubblewrap and
+# socat: the dependencies of Claude Code's built-in sandbox on Linux, which
+# the issue-moderation workflows require (run_claude.sh fails closed
 # without it).
 apt-get update
 apt-get install -y --no-install-recommends gnupg jq xz-utils bubblewrap socat
@@ -243,12 +275,8 @@ case "$dpkg_arch" in
 esac
 
 uv_asset="uv-${rust_arch}-unknown-linux-gnu"
-tmp_path -d
-uv_tmpdir="$tmp_result"
-fetch_checked "https://github.com/astral-sh/uv/releases/download/${uv_version}/${uv_asset}.tar.gz" "$uv_tmpdir"
-tar -xzf "${uv_tmpdir}/${uv_asset}.tar.gz" -C "$uv_tmpdir" "${uv_asset}/uv" "${uv_asset}/uvx"
-install -m755 -t /usr/local/bin "${uv_tmpdir}/${uv_asset}/uv" "${uv_tmpdir}/${uv_asset}/uvx"
-rm -rf "$uv_tmpdir"
+install_checked_tarball "https://github.com/astral-sh/uv/releases/download/${uv_version}/${uv_asset}.tar.gz" \
+    /usr/local/bin "${uv_asset}/uv" "${uv_asset}/uvx"
 
 # python3 isn't otherwise a dependency of this template -- it's
 # infrastructure tooling only: prek (like pre-commit) needs *some*
@@ -289,12 +317,8 @@ ln -s "/usr/local/lib/nodejs/${node_asset}/bin/npx" /usr/local/bin/npx
 # instance, regardless of language, is expected to run
 # `prek run --all-files --hook-stage manual` (see checks.yml).
 prek_asset="prek-${rust_arch}-unknown-linux-gnu"
-tmp_path -d
-prek_tmpdir="$tmp_result"
-fetch_checked "https://github.com/j178/prek/releases/download/v${prek_version}/${prek_asset}.tar.gz" "$prek_tmpdir"
-tar -xzf "${prek_tmpdir}/${prek_asset}.tar.gz" -C "$prek_tmpdir" "${prek_asset}/prek"
-install -m755 -t /usr/local/bin "${prek_tmpdir}/${prek_asset}/prek"
-rm -rf "$prek_tmpdir"
+install_checked_tarball "https://github.com/j178/prek/releases/download/v${prek_version}/${prek_asset}.tar.gz" \
+    /usr/local/bin "${prek_asset}/prek"
 
 # Created here, owned by vscode, because a fresh claude-config volume
 # (compose.yml) copies this directory's ownership and mode on first mount;

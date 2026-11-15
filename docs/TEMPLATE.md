@@ -244,6 +244,51 @@ Findings from the OWASP review (A03/A08), and what each now does:
   consumed images and features by digest, and an org ruleset requiring
   review for `.github/workflows/**`. See the [GitHub documentation](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
   and [npm's](https://docs.npmjs.com/trusted-publishers).
+- **Moderation and template-sync environments (setup step for each
+  instance).** The jobs that read a secret declare an environment, the
+  same way `release.yml` does: `moderation` for the `gate` job and the
+  Claude job (`triage`/`fix`/`build`) of the four `moderate-*.yml`
+  workflows (`ANTHROPIC_API_KEY`), and `template-sync` for
+  `template-sync.yml`'s `sync` job (`TEMPLATE_SYNC_TOKEN`). The `apply`
+  and `cleanup` jobs read no secret (only the per-job `GITHUB_TOKEN`
+  permissions, which an environment cannot scope) and declare none.
+  Run `.github/scripts/setup_environments.sh` once per repository, **before
+  syncing the workflows that carry the `environment:` lines**:
+  `setup_environments.sh OWNER/REPO` is a dry run that prints what it
+  would do; `--apply` creates each environment with *Selected branches*
+  and one rule, the default branch, and keeps any reviewers or wait timer
+  already set; `--env NAME` limits it. It never touches secrets (values
+  can't be read back): it prints `gh secret set NAME --env <environment>`
+  and `gh secret delete NAME` for you to run, and flags an organization
+  secret visible to all repositories, which any branch workflow can read
+  and which has to be recreated as an environment secret. A job reads an
+  environment secret only if it declares the environment, and an
+  environment secret overrides a repository one of the same name, so move
+  the secret after the workflow is synced and the environment exists.
+  The branch rule matches every trigger these workflows use: `issues`
+  (opened, reopened, closed, labeled) and `schedule` runs always have the
+  default branch as `GITHUB_REF` and `GITHUB_SHA`, and a
+  `workflow_dispatch` run has the branch it was dispatched on, so a
+  dispatch from another branch is refused, as intended. Use the branch
+  rule only: required reviewers or a wait timer would hold every issue
+  event until someone approves. Sources:
+  [events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
+  (`GITHUB_REF`/`GITHUB_SHA` per event),
+  [managing environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+  Referencing an environment that doesn't exist makes GitHub create it with
+  no rules, so the workflows check it themselves: the `gate` job (the first
+  step before it reads the secret), `template-sync.yml`'s first step and
+  `release.yml`'s `version` job read
+  `GET repos/{repo}/environments/{name}` and its
+  `deployment-branch-policies` with the job's own token (the
+  `actions: read` permission those endpoints need) and **fail** with a
+  message when the environment is missing or has no custom branch policy,
+  or its rules aren't exactly one `branch:<default branch>`. If the token
+  cannot read the environment (a 401/403), the step only warns that the
+  policy is unverified, so a token or plan difference never blocks a
+  release or a moderation run. The check is a fail-fast diagnostic only: a
+  writer can delete it on their own branch. What enforces the rule is the
+  environment itself.
 - **Renovate waits 3 days before automerging.** The "patch and minor
   updates" group sets `minimumReleaseAge: "3 days"` (the age Renovate's
   own `security:minimumReleaseAgeNpm` preset uses) with
@@ -258,6 +303,13 @@ Findings from the OWASP review (A03/A08), and what each now does:
   age check, and are not automerged.
   Digest-only updates (including the Dockerfile's base image) were never
   in the automerged group.
+  Python 3.15 is held: a `packageRules` entry (`matchDepNames: ["python"]`,
+  `allowedVersions: "<3.15"`) keeps Renovate from proposing it, because uv has
+  no 3.15 build yet, pip-audit crashes on the removed `sre_constants` and
+  pydantic-core has no cp315 wheel on arm64. `.github/renovate.json` is
+  merge tier, so the rule reaches instances through template sync. Lift it
+  (delete the rule) once uv offers 3.15 builds and pip-audit and
+  pydantic-core support 3.15.
 - **Installers are verified, not run blind.** `scripts/develop.sh` no
   longer runs vendor install scripts. `uv` and `prek` are installed from
   their release tarballs, checked against the `.sha256` file published

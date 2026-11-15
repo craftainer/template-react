@@ -118,6 +118,7 @@ class ApplyResultTest(unittest.TestCase):
             "FAKE_LOG": str(self.tmp / "log.txt"),
             "FAKE_LABELS": labels,
             "FAKE_FAIL": fail,
+            "MODERATE_RETRY_DELAY": "0",
             "FAKE_REMOTE_SHA": remote_sha,
             "FAKE_PR_URL": pr_url,
             "GITHUB_SERVER_URL": "https://github.com",

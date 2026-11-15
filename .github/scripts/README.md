@@ -4,6 +4,12 @@
   tags and prints the next `tag=` / `version=` / `prerelease=` for
   `../workflows/release.yml`, given a release channel and a SemVer 2
   bump.
+- `setup_environments.sh` — creates or updates the `release`, `moderation`
+  and `template-sync` GitHub environments (default-branch-only deployment
+  rule) and prints the commands that move their secrets in; dry run unless
+  `--apply` (see `../../docs/TEMPLATE.md`, "Moderation and template-sync
+  environments"). `test_environments.py` runs the workflows' environment
+  check step against a stub `gh`.
 - `template_sync_manifest.py` — parses `../template-sync-manifest.yml`
   and checks that every git-tracked path matches exactly one tier;
   backs both the `template-sync-manifest` prek hook and
@@ -30,12 +36,27 @@
   `conflicts=0|1` line to `$GITHUB_OUTPUT`. `apply` catches its broad failure with
   `logging.exception` rather than a `noqa`, so instances that don't
   select ruff's `BLE` rules see no unused-`noqa` finding.
+  `apply` also creates the `ignore`-tier files a release introduces: an
+  exact-path `ignore` entry (not a glob or directory) whose file is in the new
+  tag but absent from the previous synced tag and from the instance is copied
+  in and listed under "New instance-owned files" in the PR body. An existing
+  file is never touched; a file the previous tag already had is not recreated,
+  so a deliberate deletion sticks (the state file records only the synced tag,
+  so the previous tag's tree is what tells a new path from a deleted one).
+  Which tier a path has is decided by the *upstream* tag's manifest alone:
+  the instance's own manifest, which classifies its tree for its own
+  instances, plays no part in a sync from its parent.
   `apply` is not atomic: on exit 2, files written before the error stay on
   disk. CI is safe because the runner checkout is discarded and the sync
   state does not advance. After a failed manual run, reset the working tree
   with `git checkout -- .` and then `git clean -fd` (separate commands).
+- `git_test_env.py` — `git_env()`, the environment every test that runs real
+  `git` must use: it drops all inherited `GIT_*` variables (a git hook exports
+  `GIT_DIR`, `GIT_INDEX_FILE`, ... which would make a scratch repo's `git add`
+  or `git init --bare` act on the outer repository, e.g. flipping its
+  `core.bare`) and keeps only a test identity.
 - `test_template_sync.py` — stdlib `unittest` tests for
-  `template_sync.py`'s replace and merge tiers (including the executable
+  `template_sync.py`'s replace and merge tiers, new ignore-tier files (including the executable
   bit, re-running a merge, symlinked destinations, and `git merge-file`
   errors raising instead of counting as conflicts, binary files counting
   as conflicts, symlinked destinations kept on removal, one tree walk for
@@ -120,13 +141,14 @@
   `../workflows/README.md`'s "Issue moderation" section and
   `https://github.com/craftainer/template-base/blob/main/docs/adrs/0001-harden-the-issue-moderation-workflows.md`.
 - `moderate_lib.sh` — sourced by the moderation scripts below: `is_sha`,
-  `is_ancestor` (compare API), `check_result_tree` (the commits a patch
+  `is_ancestor` (compare API; a failed call is retried up to three times,
+  a definite "not ahead" answer is not), `check_result_tree` (the commits a patch
   produced against the path allow-list and no symlink or submodule),
   `agent_file` (a result file must be a regular file really under
   `.moderation-out/`) and the size caps.
 - `moderate_check_paths.sh` — the path allow-list: reads NUL-separated
   paths on stdin and fails on any under `.github/`, `.devcontainer/`,
-  `.claude/`, a `Makefile`/`*.mk`, `Dockerfile*`, `compose*.y*ml`/`docker-compose*.y*ml`,
+  `.devcontainer.json`, `.claude/`, a `Makefile`/`*.mk`, `Dockerfile*`, `compose*.y*ml`/`docker-compose*.y*ml`,
   `.pre-commit-config.yaml`, `scripts/release*` and the other files that
   decide what runs with credentials.
 - `moderate_prepare.sh` / `moderate_verify_branch.sh` — run on the runner
@@ -136,7 +158,9 @@
 - `moderate_package_result.sh` — the Claude job's last step: reads the
   agent's commits through a fresh bare repository and its note or triage
   file only if a regular file under `.moderation-out/`, and writes
-  `meta.json` and `patch.diff` for the `apply` job.
+  `meta.json` and `patch.diff` for the `apply` job. A triage patch over the
+  size cap becomes a `failed` result carrying that reason, which
+  `moderate_apply_triage.sh` includes in its "no usable result" note.
 - `moderate_apply_result.sh` / `moderate_apply_triage.sh` — the `apply`
   jobs' scripts (fix/build, and triage): validate the artifact, then push,
   open the PR or comment, and label. The only scripts that write; they
