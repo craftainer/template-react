@@ -53,7 +53,7 @@ ARG SSL_CERT_DIR=/etc/ssl/certs
 # bumps the tag and re-pins the digest together (pinDigests in
 # .github/renovate.json). The syntax frontend on line 1 is pinned the same
 # way. Digests are of the multi-arch index (amd64 and arm64).
-FROM mcr.microsoft.com/devcontainers/base:trixie@sha256:71b6fe7c4e07ec747a94a72b2a17f2f8c286eaa7b1c59862888df764efb8b6c6 AS develop
+FROM mcr.microsoft.com/devcontainers/base:trixie@sha256:41ff7ce12ec45f2704f27a6e091831186ad922ec8112e6339425bfefdf5a70f9 AS develop
 ARG PREK_VERSION
 ARG CLAUDE_CODE_VERSION
 ARG SNIP_VERSION
