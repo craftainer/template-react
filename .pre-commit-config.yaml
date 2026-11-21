@@ -67,7 +67,7 @@ repos:
   # that directory only. Keep the rev equal to the ruff the Python
   # templates pin in pyproject.toml.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.4
+    rev: v0.17.5
     hooks:
       - id: ruff-check
         name: ruff check (.github/scripts)
@@ -196,7 +196,7 @@ repos:
         stages: [manual]
 
   - repo: https://github.com/google/osv-scanner
-    rev: v2.7.0
+    rev: v2.7.1
     hooks:
       # Online (queries osv.dev). Only runs when a supported lockfile is
       # in the file set: with none, osv-scanner exits 128 ("no packages
