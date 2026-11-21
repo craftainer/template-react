@@ -18,7 +18,7 @@ jobs:
     # Keep the tag equal to @playwright/test in package.json, and the tag
     # and digest equal to IMAGE in tests/visual/run.sh.
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
       options: --ipc=host
     steps:
       - name: Check out repository
