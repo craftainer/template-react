@@ -7,7 +7,7 @@
 # the bundle is built with the same Node the devcontainer tests against --
 # enforced by scripts/check-dockerfile-versions.sh.
 # renovate: datasource=node-version depName=node
-ARG NODE_VERSION=24.22.2
+ARG NODE_VERSION=26.13.1
 ARG DEBIAN_VERSION=trixie
 
 ARG SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -72,7 +72,7 @@ RUN pnpm --filter ./bff deploy --prod /out
 # checks it (bff/src/dockerfile.test.ts).
 ########################################
 # renovate: datasource=docker depName=node
-FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS runner
+FROM node:26.13.1-trixie-slim@sha256:abe7e5a82b61a8ef67b315b85497c9e65173387ccf2f4a029248184b8e020be5 AS runner
 
 ENV NODE_ENV=production \
     BFF_STATIC_DIR=/app/dist
