@@ -35,7 +35,7 @@ ARG PYTHON_VERSION=3.14.8
 # (the clear-thought MCP server in .mcp.json) is the only thing that
 # needs it.
 # renovate: datasource=node-version depName=node
-ARG NODE_VERSION=24.22.2
+ARG NODE_VERSION=26.13.1
 
 ARG SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ARG SSL_CERT_DIR=/etc/ssl/certs
