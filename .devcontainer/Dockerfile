@@ -1,20 +1,20 @@
-# syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
+# syntax=docker/dockerfile:1.29@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 # Single-stage build: develop (the devcontainer image). Built with the repo
 # root as context (see compose.yml). The repo-root Dockerfile is reserved for
 # an instance's own runtime image -- see docs/TEMPLATE.md's "Contents" and
 # "Instance extension points".
 
 # renovate: datasource=github-releases depName=j178/prek
-ARG PREK_VERSION=0.5.10
+ARG PREK_VERSION=0.5.11
 
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.319
+ARG CLAUDE_CODE_VERSION=2.1.332
 
 # renovate: datasource=github-releases depName=edouard-claude/snip
 ARG SNIP_VERSION=0.26.0
 
 # renovate: datasource=github-releases depName=cli/cli
-ARG GH_VERSION=2.103.3
+ARG GH_VERSION=2.105.0
 
 # uv itself isn't a project dependency manager here -- it's only the
 # mechanism scripts/develop.sh uses to install an exact, checksum-verified
@@ -22,7 +22,7 @@ ARG GH_VERSION=2.103.3
 # package. Left on PATH afterward; harmless, and an instance that adds
 # Python as its own application runtime can reuse it directly.
 # renovate: datasource=github-releases depName=astral-sh/uv
-ARG UV_VERSION=0.13.7
+ARG UV_VERSION=0.13.10
 
 # python3 is infrastructure tooling, not an application runtime this
 # template assumes: prek needs an interpreter to build the venv for any
@@ -35,7 +35,7 @@ ARG PYTHON_VERSION=3.14.8
 # (the clear-thought MCP server in .mcp.json) is the only thing that
 # needs it.
 # renovate: datasource=node-version depName=node
-ARG NODE_VERSION=24.22.2
+ARG NODE_VERSION=24.22.3
 
 ARG SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ARG SSL_CERT_DIR=/etc/ssl/certs

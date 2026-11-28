@@ -67,7 +67,7 @@ repos:
   # that directory only. Keep the rev equal to the ruff the Python
   # templates pin in pyproject.toml.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.4
+    rev: v0.17.6
     hooks:
       - id: ruff-check
         name: ruff check (.github/scripts)
@@ -171,7 +171,7 @@ repos:
   # pre-commit manager bumps tags directly, and a SHA + "# frozen: vX"
   # comment is pre-commit.ci's convention that it doesn't maintain.
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.32.0
+    rev: v1.33.1
     hooks:
       # Offline when run locally (no token); checks.yml passes GH_TOKEN
       # through to the devcontainer so CI also runs the online audits.
@@ -196,7 +196,7 @@ repos:
         stages: [manual]
 
   - repo: https://github.com/google/osv-scanner
-    rev: v2.7.0
+    rev: v2.7.1
     hooks:
       # Online (queries osv.dev). Only runs when a supported lockfile is
       # in the file set: with none, osv-scanner exits 128 ("no packages

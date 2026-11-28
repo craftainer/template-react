@@ -16,4 +16,4 @@ minimumReleaseAgeExclude:
 # already uses minimatch 11, so the same API is in use; drop this override
 # once glob 13 or its parent moves on.
 overrides:
-  "glob@13>minimatch": "11.0.8"
+  "glob@13>minimatch": "11.0.9"
